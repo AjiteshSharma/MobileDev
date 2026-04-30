@@ -1,153 +1,307 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+
+import '../models/quiz_models.dart';
+import '../services/auth_service.dart';
+import '../services/quiz_service.dart';
 
 class TeacherDashboard extends StatelessWidget {
   const TeacherDashboard({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final teacher = FirebaseAuth.instance.currentUser;
+    if (teacher == null) {
+      return const _NoSessionScaffold();
+    }
+
+    final quizService = const QuizService();
+
     return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FF),
       appBar: AppBar(
-        title: const Text('EduAssess'),
+        title: const Text('Teacher Dashboard'),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(LucideIcons.bell)),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16.0),
-            child: CircleAvatar(
-              backgroundImage: NetworkImage('https://lh3.googleusercontent.com/aida-public/AB6AXuC_cKvNvN7FO2voBStgvd3vz2QEdlVZSFinewLnqih6b3jtj5GmmTIl-bbyK03CV_6Owcyx6hrpwtgxCi2tsTjawtUgVRrSZOYHpcsnMLRf_IKCe9jHgnc5CrbTtF_rBicZQVfMjgAyxN4BDYkBLmkCvhb5ppdWODil08lcAMw30SVYA5jPRUFqATFZhISg6fTdVEZ_c5pvKWZ8MARpNWp-nZliJMRBsJdqUc7W2b3lXqBKL4yvqeoG_4wZKNzPVcM20Nysn-KRHf4'),
-            ),
+          IconButton(
+            onPressed: () => Navigator.pushNamed(context, '/manage-quizzes'),
+            icon: const Icon(LucideIcons.layers),
+          ),
+          IconButton(
+            onPressed: () => const AuthService().signOut(),
+            icon: const Icon(LucideIcons.logOut),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Teacher Dashboard',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            const Text(
-              'Welcome back. Here is your assessment overview for today.',
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 32),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 2,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
+      body: StreamBuilder<List<QuizSummary>>(
+        stream: quizService.streamTeacherQuizzes(teacher.uid),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('Failed to load quizzes: ${snapshot.error}'),
+            );
+          }
+
+          final quizzes = snapshot.data ?? const <QuizSummary>[];
+          final now = DateTime.now();
+
+          final activeCount = quizzes
+              .where((quiz) => quiz.isActiveAt(now))
+              .length;
+          final upcomingCount = quizzes
+              .where((quiz) => quiz.isUpcomingAt(now))
+              .length;
+          final completedCount = quizzes
+              .where((quiz) => quiz.isPastAt(now))
+              .length;
+          final processingCount = quizzes
+              .where((quiz) => quiz.status == 'processing')
+              .length;
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildStatCard(context, 'Total Quizzes', '24', LucideIcons.layers, Colors.blue),
-                _buildStatCard(context, 'Active', '3', LucideIcons.playCircle, Colors.green),
-                _buildStatCard(context, 'Upcoming', '1', LucideIcons.calendar, Colors.blue),
-                _buildStatCard(context, 'Flagged', '2', LucideIcons.alertCircle, Colors.red, isError: true),
-              ],
-            ),
-            const SizedBox(height: 48),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Recent Quizzes', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: 3,
-                separatorBuilder: (context, index) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final titles = ['Mid-term Algebra Assessment', 'Cell Biology Basics', 'World War II Recap'];
-                  final subjects = ['Mathematics', 'Natural Sciences', 'History'];
-                  final statuses = ['ACTIVE', 'DRAFT', 'SCHEDULED'];
-                  return ListTile(
-                    contentPadding: const EdgeInsets.all(16),
-                    title: Text(titles[index], style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(subjects[index]),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+                Text(
+                  'Welcome, ${teacher.displayName?.trim().isNotEmpty == true ? teacher.displayName : teacher.email}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Manage uploads, monitor quiz status, and review student performance.',
+                  style: TextStyle(color: Colors.black54),
+                ),
+                const SizedBox(height: 20),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: MediaQuery.of(context).size.width > 700
+                      ? 4
+                      : 2,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  children: [
+                    _StatCard(
+                      label: 'Total Quizzes',
+                      value: quizzes.length.toString(),
+                      icon: LucideIcons.layers,
+                      color: const Color(0xFF005BBF),
+                    ),
+                    _StatCard(
+                      label: 'Active',
+                      value: activeCount.toString(),
+                      icon: LucideIcons.playCircle,
+                      color: Colors.green,
+                    ),
+                    _StatCard(
+                      label: 'Upcoming',
+                      value: upcomingCount.toString(),
+                      icon: LucideIcons.calendar,
+                      color: Colors.blue,
+                    ),
+                    _StatCard(
+                      label: 'Processing',
+                      value: processingCount.toString(),
+                      icon: LucideIcons.loader2,
+                      color: Colors.orange,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 28),
+                const Text(
+                  'Recent Quizzes',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                if (quizzes.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'No quizzes yet. Tap + to upload your first Excel quiz.',
+                      ),
+                    ),
+                  )
+                else
+                  Card(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: quizzes.length,
+                      separatorBuilder: (_, index) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final quiz = quizzes[index];
+                        final status = _statusForQuiz(quiz, now);
+                        final formatted = DateFormat(
+                          'dd MMM yyyy, hh:mm a',
+                        ).format(quiz.startAt);
+
+                        return ListTile(
+                          title: Text(
+                            quiz.title,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            '${quiz.subject} • ${quiz.batch} • $formatted',
+                          ),
+                          trailing: _StatusBadge(label: status),
+                        );
+                      },
+                    ),
+                  ),
+                const SizedBox(height: 24),
+                Card(
+                  color: const Color(0xFFEFF6FF),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
                       children: [
-                        _buildStatusBadge(statuses[index]),
-                        const SizedBox(width: 16),
-                        const Icon(LucideIcons.edit2, size: 18),
-                        const SizedBox(width: 8),
-                        const Icon(LucideIcons.barChart3, size: 18),
+                        const Icon(
+                          LucideIcons.shieldAlert,
+                          color: Color(0xFF005BBF),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Completed quizzes: $completedCount. Flagged attempt reporting is available via Firestore attempts with status flagged/disqualified.',
+                          ),
+                        ),
                       ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.pushNamed(context, '/create-quiz'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        child: const Icon(LucideIcons.plus, color: Colors.white),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        onTap: (index) {
-          if (index == 1) Navigator.pushNamed(context, '/manage-quizzes');
+          );
         },
-        items: const [
-          BottomNavigationBarItem(icon: Icon(LucideIcons.layoutDashboard), label: 'Dashboard'),
-          BottomNavigationBarItem(icon: Icon(LucideIcons.layers), label: 'Quizzes'),
-          BottomNavigationBarItem(icon: Icon(LucideIcons.barChart3), label: 'Results'),
-          BottomNavigationBarItem(icon: Icon(LucideIcons.user), label: 'Profile'),
-        ],
-        currentIndex: 0,
-        selectedItemColor: Theme.of(context).colorScheme.primary,
-        unselectedItemColor: Colors.grey,
-        type: BottomNavigationBarType.fixed,
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.pushNamed(context, '/create-quiz'),
+        icon: const Icon(LucideIcons.plus, color: Colors.white),
+        label: const Text('New Quiz', style: TextStyle(color: Colors.white)),
+        backgroundColor: const Color(0xFF005BBF),
       ),
     );
   }
 
-  Widget _buildStatCard(BuildContext context, String label, String value, IconData icon, Color iconColor, {bool isError = false}) {
+  String _statusForQuiz(QuizSummary quiz, DateTime now) {
+    if (quiz.status == 'processing' || quiz.status == 'error') {
+      return quiz.status.toUpperCase();
+    }
+
+    if (quiz.isActiveAt(now)) {
+      return 'ACTIVE';
+    }
+    if (quiz.isUpcomingAt(now)) {
+      return 'UPCOMING';
+    }
+    return 'COMPLETED';
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isError ? const Color(0xFFFFDAD6) : Colors.white,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isError ? Colors.red.withOpacity(0.2) : const Color(0xFFC1C6D6)),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Colors.black54),
+          ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(value, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-              Icon(icon, color: iconColor, size: 28),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Icon(icon, color: color),
             ],
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildStatusBadge(String status) {
-    Color color = Colors.grey;
-    if (status == 'ACTIVE') color = Colors.green;
-    if (status == 'SCHEDULED') color = Colors.blue;
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (label) {
+      'ACTIVE' => Colors.green,
+      'UPCOMING' => Colors.blue,
+      'PROCESSING' => Colors.orange,
+      'ERROR' => Colors.red,
+      _ => Colors.grey,
+    };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color)),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.bold,
+          fontSize: 11,
+        ),
+      ),
     );
   }
 }
 
+class _NoSessionScaffold extends StatelessWidget {
+  const _NoSessionScaffold();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: ElevatedButton(
+          onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+          child: const Text('Sign in again'),
+        ),
+      ),
+    );
+  }
+}

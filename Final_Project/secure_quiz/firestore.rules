@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userRole() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? userDoc().data.role
+        : null;
+    }
+
+    function isTeacher() {
+      return userRole() == 'teacher';
+    }
+
+    function isStudent() {
+      return userRole() == 'student';
+    }
+
+    function isOwnUser(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function quizOwner(quizId) {
+      return get(/databases/$(database)/documents/quizzes/$(quizId)).data.createdBy;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwnUser(userId) || isTeacher();
+
+      allow create: if isOwnUser(userId)
+        && request.resource.data.role in ['teacher', 'student'];
+
+      allow update: if (isOwnUser(userId)
+        && request.resource.data.role == resource.data.role)
+        || isTeacher();
+
+      allow delete: if false;
+    }
+
+    match /quizzes/{quizId} {
+      allow read: if signedIn();
+
+      allow create: if isTeacher()
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow update, delete: if isTeacher()
+        && resource.data.createdBy == request.auth.uid;
+
+      match /questions/{questionId} {
+        allow read: if signedIn();
+        allow write: if isTeacher()
+          && quizOwner(quizId) == request.auth.uid;
+      }
+    }
+
+    match /attempts/{attemptId} {
+      allow create: if isStudent()
+        && request.resource.data.studentId == request.auth.uid;
+
+      allow read: if signedIn() && (
+        resource.data.studentId == request.auth.uid
+        || (isTeacher() && quizOwner(resource.data.quizId) == request.auth.uid)
+      );
+
+      allow update: if signedIn() && (
+        resource.data.studentId == request.auth.uid
+        || (isTeacher() && quizOwner(resource.data.quizId) == request.auth.uid)
+      );
+
+      allow delete: if false;
+
+      match /violations/{violationId} {
+        allow read: if signedIn() && (
+          get(/databases/$(database)/documents/attempts/$(attemptId)).data.studentId == request.auth.uid
+          || (isTeacher() && quizOwner(get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId) == request.auth.uid)
+        );
+
+        allow create: if isStudent()
+          && get(/databases/$(database)/documents/attempts/$(attemptId)).data.studentId == request.auth.uid;
+
+        allow update, delete: if false;
+      }
+    }
+  }
+}

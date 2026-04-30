@@ -26,17 +26,38 @@ class QuizManagementScreen extends StatelessWidget {
                 const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Management', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                    Text('12 Active Assessments', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
+                    Text(
+                      'Management',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '12 Active Assessments',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ],
                 ),
                 ElevatedButton.icon(
                   onPressed: () => Navigator.pushNamed(context, '/create-quiz'),
-                  icon: const Icon(LucideIcons.plus, size: 18, color: Colors.white),
-                  label: const Text('New', style: TextStyle(color: Colors.white)),
+                  icon: const Icon(
+                    LucideIcons.plus,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                  label: const Text(
+                    'New',
+                    style: TextStyle(color: Colors.white),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ],
@@ -57,7 +78,7 @@ class QuizManagementScreen extends StatelessWidget {
             _buildQuizListItem(
               context,
               'Advanced Macroeconomics Final',
-              'Section B • 150 Students',
+              'Section B â€¢ 150 Students',
               'Ends: Today, 11:59 PM',
               '142 Submitted',
               'ACTIVE',
@@ -66,7 +87,7 @@ class QuizManagementScreen extends StatelessWidget {
             _buildQuizListItem(
               context,
               'Introduction to Psychology',
-              'Section A • 120 Students',
+              'Section A â€¢ 120 Students',
               'Ends: Tomorrow',
               '88 Submitted',
               'ACTIVE',
@@ -75,7 +96,7 @@ class QuizManagementScreen extends StatelessWidget {
             _buildQuizListItem(
               context,
               'Quantum Physics 402',
-              'Graduate Level • 45 Students',
+              'Graduate Level â€¢ 45 Students',
               'Scheduled: Oct 28',
               '0 Submitted',
               'UPCOMING',
@@ -94,8 +115,18 @@ class QuizManagementScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: isSelected ? const Color(0xFF005BBF) : Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isSelected ? Colors.transparent : const Color(0xFFC1C6D6)),
-        boxShadow: isSelected ? [BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))] : null,
+        border: Border.all(
+          color: isSelected ? Colors.transparent : const Color(0xFFC1C6D6),
+        ),
+        boxShadow: isSelected
+            ? [
+                BoxShadow(
+                  color: Colors.blue.withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
       ),
       child: Text(
         label,
@@ -131,41 +162,84 @@ class QuizManagementScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
+                      color: statusColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: statusColor.withOpacity(0.2)),
+                      border: Border.all(
+                        color: statusColor.withValues(alpha: 0.2),
+                      ),
                     ),
                     child: Text(
                       status,
-                      style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1),
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
                     ),
                   ),
-                  const Icon(LucideIcons.moreVertical, size: 18, color: Colors.grey),
+                  const Icon(
+                    LucideIcons.moreVertical,
+                    size: 18,
+                    color: Colors.grey,
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
-              Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: const TextStyle(color: Colors.grey, fontSize: 13),
+              ),
               const SizedBox(height: 20),
               Row(
                 children: [
                   Expanded(
                     child: Row(
                       children: [
-                        const Icon(LucideIcons.calendar, size: 14, color: Colors.blue),
+                        const Icon(
+                          LucideIcons.calendar,
+                          size: 14,
+                          color: Colors.blue,
+                        ),
                         const SizedBox(width: 8),
-                        Text(date, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                        Text(
+                          date,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ],
                     ),
                   ),
                   Expanded(
                     child: Row(
                       children: [
-                        const Icon(LucideIcons.users, size: 14, color: Colors.blue),
+                        const Icon(
+                          LucideIcons.users,
+                          size: 14,
+                          color: Colors.blue,
+                        ),
                         const SizedBox(width: 8),
-                        Text(submissions, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                        Text(
+                          submissions,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -177,10 +251,21 @@ class QuizManagementScreen extends StatelessWidget {
               const Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('View Live Results', style: TextStyle(color: Color(0xFF005BBF), fontWeight: FontWeight.bold, fontSize: 13)),
-                  Icon(LucideIcons.arrowRight, size: 16, color: Color(0xFF005BBF)),
+                  Text(
+                    'View Live Results',
+                    style: TextStyle(
+                      color: Color(0xFF005BBF),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Icon(
+                    LucideIcons.arrowRight,
+                    size: 16,
+                    color: Color(0xFF005BBF),
+                  ),
                 ],
-              )
+              ),
             ],
           ),
         ),

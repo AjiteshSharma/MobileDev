@@ -35,10 +35,18 @@ class QuizPreviewScreen extends StatelessWidget {
                   const SizedBox(height: 32),
                   _buildSectionTitle('Instructions'),
                   const SizedBox(height: 12),
-                  _buildInstructionItem('Ensure a stable internet connection throughout the session.'),
-                  _buildInstructionItem('Calculators are permitted for Section B (Integral applications).'),
-                  _buildInstructionItem('Once started, the timer cannot be paused.'),
-                  _buildInstructionItem('Browser tab switching will trigger a warning; 3 warnings result in auto-submission.'),
+                  _buildInstructionItem(
+                    'Ensure a stable internet connection throughout the session.',
+                  ),
+                  _buildInstructionItem(
+                    'Calculators are permitted for Section B (Integral applications).',
+                  ),
+                  _buildInstructionItem(
+                    'Once started, the timer cannot be paused.',
+                  ),
+                  _buildInstructionItem(
+                    'Browser tab switching will trigger a warning; 3 warnings result in auto-submission.',
+                  ),
                   const SizedBox(height: 40),
                 ],
               ),
@@ -69,8 +77,8 @@ class QuizPreviewScreen extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withOpacity(0.3),
-                    Colors.black.withOpacity(0.7),
+                    Colors.black.withValues(alpha: 0.3),
+                    Colors.black.withValues(alpha: 0.7),
                   ],
                 ),
               ),
@@ -147,7 +155,9 @@ class QuizPreviewScreen extends StatelessWidget {
           children: [
             const CircleAvatar(
               radius: 12,
-              backgroundImage: NetworkImage('https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=100'),
+              backgroundImage: NetworkImage(
+                'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=100',
+              ),
             ),
             const SizedBox(width: 8),
             Text(
@@ -264,10 +274,7 @@ class QuizPreviewScreen extends StatelessWidget {
         ),
         child: Text(
           'Start Assessment Now',
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
         ),
       ),
     );
