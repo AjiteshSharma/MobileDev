@@ -3,13 +3,18 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:screen_protector/screen_protector.dart';
 
+import '../models/app_role.dart';
 import '../models/quiz_models.dart';
 import '../services/attempt_service.dart';
+import '../services/auth_service.dart';
 import '../services/quiz_service.dart';
+import 'results_screen.dart';
+import '../security/web_quiz_security.dart' as web_security;
 
 class QuizTakingScreen extends StatefulWidget {
   const QuizTakingScreen({
@@ -39,6 +44,7 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _attemptSubscription;
+  web_security.WebQuizSecurityBinding? _webSecurityBinding;
   Timer? _timer;
 
   String? _attemptId;
@@ -53,6 +59,8 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   bool _isSubmitting = false;
   bool _quizFinished = false;
   bool _dialogOpen = false;
+  bool _isReadOnlyPreview = false;
+  bool _navigatedToResults = false;
 
   @override
   void initState() {
@@ -66,6 +74,7 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _attemptSubscription?.cancel();
+    _webSecurityBinding?.dispose();
     _timer?.cancel();
     _disableSecureScreen();
     super.dispose();
@@ -90,6 +99,7 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   Future<void> _initializeSecureQuizSession() async {
     try {
       await _enableSecureScreen();
+      _attachWebSecurityHooks();
 
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
@@ -118,14 +128,35 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
           ? <QuizQuestion>[fallbackQuestion]
           : questions;
 
-      final attemptId = await _attemptService.startOrResumeAttempt(
-        quizId: widget.quizId,
-        studentId: currentUser.uid,
+      final role = await const AuthService().getRoleForUser(
+        uid: currentUser.uid,
       );
+      final isTeacherRole = role == AppRole.teacher;
+      var isReadOnlyPreview = isTeacherRole;
+      String? attemptId;
 
-      _attemptSubscription = _attemptService
-          .watchAttempt(attemptId)
-          .listen(_applyAttemptSnapshot);
+      if (!isReadOnlyPreview) {
+        try {
+          attemptId = await _attemptService.startOrResumeAttempt(
+            quizId: widget.quizId,
+            studentId: currentUser.uid,
+          );
+
+          _attemptSubscription = _attemptService
+              .watchAttempt(attemptId)
+              .listen(_applyAttemptSnapshot);
+        } on FirebaseException catch (error) {
+          if (error.code == 'permission-denied') {
+            throw FirebaseException(
+              plugin: 'cloud_firestore',
+              code: error.code,
+              message:
+                  'Monitored mode blocked by Firestore rules. Ensure users/${currentUser.uid} has role "student" and latest Firestore rules are deployed.',
+            );
+          }
+          rethrow;
+        }
+      }
 
       if (!mounted) {
         return;
@@ -134,11 +165,21 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
       setState(() {
         _questions = resolvedQuestions;
         _attemptId = attemptId;
+        _isReadOnlyPreview = isReadOnlyPreview;
+        if (isReadOnlyPreview) {
+          _attemptStatus = 'preview';
+        }
         _isLoading = false;
       });
 
-      _startTimer();
-      _checkScreenRecordingAtStart();
+      if (_isReadOnlyPreview) {
+        _showSnack(
+          'Teacher preview mode active. Attempts and violations are not recorded.',
+        );
+      } else {
+        _startTimer();
+        _checkScreenRecordingAtStart();
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -159,6 +200,7 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
 
     final status = (data['status'] as String?) ?? 'in_progress';
     final violations = (data['violationCount'] as num?)?.toInt() ?? 0;
+    final hasSubmittedAt = data['submittedAt'] != null;
 
     final answersMap =
         (data['answers'] as Map<String, dynamic>? ?? <String, dynamic>{}).map(
@@ -173,9 +215,44 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
         ..addAll(answersMap);
     });
 
+    if (hasSubmittedAt) {
+      _quizFinished = true;
+      _timer?.cancel();
+      _openResultsForAttempt(snapshot.id);
+      return;
+    }
+
     if (status == 'disqualified' && !_quizFinished) {
       _forceSubmitBecauseDisqualified();
     }
+  }
+
+  void _openResultsForAttempt(String attemptId) {
+    if (!mounted || _navigatedToResults) {
+      return;
+    }
+
+    _navigatedToResults = true;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => ResultsScreen(
+          attemptId: attemptId,
+          quizId: widget.quizId,
+          quizTitle: widget.quizTitle,
+        ),
+      ),
+    );
+  }
+
+  void _attachWebSecurityHooks() {
+    if (!kIsWeb || _webSecurityBinding != null) {
+      return;
+    }
+
+    _webSecurityBinding = web_security.installWebQuizSecurity(
+      onViolation: (type, details) =>
+          _logViolation(type: type, details: details),
+    );
   }
 
   Future<void> _enableSecureScreen() async {
@@ -254,14 +331,20 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   }
 
   Future<void> _saveAnswer(String questionId, String selectedOption) async {
-    final attemptId = _attemptId;
-    if (attemptId == null || _quizFinished) {
+    final isSubmittedInMonitoredMode =
+        !_isReadOnlyPreview && _attemptStatus == 'submitted';
+    if (_quizFinished || _isSubmitting || isSubmittedInMonitoredMode) {
       return;
     }
 
     setState(() {
       _answers[questionId] = selectedOption;
     });
+
+    final attemptId = _attemptId;
+    if (attemptId == null) {
+      return;
+    }
 
     try {
       await _attemptService.saveAnswer(
@@ -353,8 +436,25 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   }
 
   Future<void> _submitQuiz({bool auto = false, String? reason}) async {
+    if (_isSubmitting || _quizFinished) {
+      return;
+    }
+
+    if (_isReadOnlyPreview) {
+      if (mounted) {
+        _showSnack('Preview mode ended.');
+        Navigator.pop(context);
+      }
+      return;
+    }
+
     final attemptId = _attemptId;
-    if (attemptId == null || _isSubmitting || _quizFinished) {
+    if (attemptId == null) {
+      return;
+    }
+
+    if (_attemptStatus == 'submitted') {
+      _openResultsForAttempt(attemptId);
       return;
     }
 
@@ -381,7 +481,7 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
         _showSnack(reason);
       }
 
-      Navigator.pushReplacementNamed(context, '/results');
+      _openResultsForAttempt(attemptId);
     } catch (_) {
       if (mounted) {
         _showSnack('Failed to submit quiz. Please retry.');
@@ -601,14 +701,15 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Submit Quiz'),
+                    : Text(
+                        _isReadOnlyPreview ? 'Close Preview' : 'Submit Quiz',
+                      ),
               ),
             ),
             const SizedBox(width: 16),
           ],
         ),
-        body: SelectionContainer.disabled(
-          child: Column(
+        body: Column(
             children: [
               LinearProgressIndicator(
                 value: progress,
@@ -622,7 +723,9 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                   horizontal: 16,
                   vertical: 10,
                 ),
-                color: _attemptStatus == 'disqualified'
+                color: _isReadOnlyPreview
+                    ? const Color(0xFFE2E8F0)
+                    : _attemptStatus == 'disqualified'
                     ? const Color(0xFFFFE2E2)
                     : (_violationCount > 0
                           ? const Color(0xFFFFF5E6)
@@ -630,20 +733,26 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                 child: Row(
                   children: [
                     Icon(
-                      _attemptStatus == 'disqualified'
+                      _isReadOnlyPreview
+                          ? LucideIcons.eye
+                          : _attemptStatus == 'disqualified'
                           ? LucideIcons.xCircle
                           : LucideIcons.shieldAlert,
                       size: 16,
-                      color: _attemptStatus == 'disqualified'
+                      color: _isReadOnlyPreview
+                          ? const Color(0xFF334155)
+                          : _attemptStatus == 'disqualified'
                           ? Colors.red
                           : const Color(0xFF9A6700),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _attemptStatus == 'disqualified'
+                        _isReadOnlyPreview
+                            ? 'Teacher preview mode. This session does not record answers, timing, or violations.'
+                            : _attemptStatus == 'disqualified'
                             ? 'Attempt disqualified due to repeated violations.'
-                            : 'Security events: $_violationCount  |  App switching and capture attempts are logged.',
+                            : 'Security events: $_violationCount  |  Tab switching, copy attempts, and capture attempts are logged.',
                         style: const TextStyle(fontSize: 12),
                       ),
                     ),
@@ -702,12 +811,17 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                         final optionText = entry.value;
                         final optionLabel = _optionLabel(optionIndex);
                         final isSelected = selected == optionText;
+                        final isAnswerSelectionLocked =
+                            _quizFinished ||
+                            _isSubmitting ||
+                            (!_isReadOnlyPreview &&
+                                _attemptStatus == 'submitted');
 
                         return _buildOption(
                           optionLabel: optionLabel,
                           text: optionText,
                           isSelected: isSelected,
-                          onTap: _attemptStatus == 'disqualified'
+                          onTap: isAnswerSelectionLocked
                               ? null
                               : () => _saveAnswer(question.id, optionText),
                         );
@@ -717,7 +831,6 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                 ),
               ),
             ],
-          ),
         ),
         bottomNavigationBar: _buildBottomNav(totalQuestions),
       ),
@@ -743,55 +856,59 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
             width: isSelected ? 2 : 1,
           ),
         ),
-        child: InkWell(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFF005BBF)
-                        : const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
                       color: isSelected
                           ? const Color(0xFF005BBF)
-                          : const Color(0xFFE2E8F0),
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      optionLabel,
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.bold,
+                          : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
                         color: isSelected
-                            ? Colors.white
-                            : const Color(0xFF64748B),
+                            ? const Color(0xFF005BBF)
+                            : const Color(0xFFE2E8F0),
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        optionLabel,
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.bold,
+                          color: isSelected
+                              ? Colors.white
+                              : const Color(0xFF64748B),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: GoogleFonts.inter(
-                      fontSize: 15,
-                      fontWeight: isSelected
-                          ? FontWeight.w600
-                          : FontWeight.w500,
-                      color: isSelected
-                          ? const Color(0xFF005BBF)
-                          : const Color(0xFF334155),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      text,
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                        color: isSelected
+                            ? const Color(0xFF005BBF)
+                            : const Color(0xFF334155),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

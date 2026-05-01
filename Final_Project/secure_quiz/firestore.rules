@@ -62,7 +62,7 @@ service cloud.firestore {
     }
 
     match /attempts/{attemptId} {
-      allow create: if isStudent()
+      allow create: if signedIn()
         && request.resource.data.studentId == request.auth.uid;
 
       allow read: if signedIn() && (
@@ -83,7 +83,7 @@ service cloud.firestore {
           || (isTeacher() && quizOwner(get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId) == request.auth.uid)
         );
 
-        allow create: if isStudent()
+        allow create: if signedIn()
           && get(/databases/$(database)/documents/attempts/$(attemptId)).data.studentId == request.auth.uid;
 
         allow update, delete: if false;

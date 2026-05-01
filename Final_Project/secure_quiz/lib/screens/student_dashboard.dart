@@ -7,6 +7,7 @@ import '../models/quiz_models.dart';
 import '../services/auth_service.dart';
 import '../services/quiz_service.dart';
 import 'quiz_taking_screen.dart';
+import 'results_screen.dart';
 
 class StudentDashboard extends StatelessWidget {
   const StudentDashboard({super.key});
@@ -75,7 +76,7 @@ class StudentDashboard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Active quizzes: ${active.length} • Upcoming: ${upcoming.length} • Past: ${past.length}',
+                  'Active quizzes: ${active.length} - Upcoming: ${upcoming.length} - Past: ${past.length}',
                   style: const TextStyle(color: Colors.black54),
                 ),
                 const SizedBox(height: 24),
@@ -142,11 +143,18 @@ class StudentDashboard extends StatelessWidget {
                             leading: const Icon(LucideIcons.history),
                             title: Text(quiz.title),
                             subtitle: Text(
-                              '${quiz.subject} • Ended ${DateFormat('dd MMM yyyy, hh:mm a').format(quiz.endAt)}',
+                              '${quiz.subject} - Ended ${DateFormat('dd MMM yyyy, hh:mm a').format(quiz.endAt)}',
                             ),
                             trailing: const Text('View marks'),
-                            onTap: () =>
-                                Navigator.pushNamed(context, '/results'),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ResultsScreen(
+                                  quizId: quiz.id,
+                                  quizTitle: quiz.title,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -204,7 +212,7 @@ class _QuizCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '${quiz.subject} • ${quiz.batch} • ${quiz.durationMinutes} min • ${quiz.totalQuestions} questions',
+              '${quiz.subject} - ${quiz.batch} - ${quiz.durationMinutes} min - ${quiz.totalQuestions} questions',
               style: const TextStyle(color: Colors.black54),
             ),
             if (onStart != null) ...[

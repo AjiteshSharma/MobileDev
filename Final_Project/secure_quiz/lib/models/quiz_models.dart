@@ -63,12 +63,14 @@ class QuizQuestion {
     required this.text,
     required this.options,
     required this.points,
+    this.correctOption = '',
   });
 
   final String id;
   final String text;
   final List<String> options;
   final int points;
+  final String correctOption;
 
   factory QuizQuestion.fromSnapshot(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
@@ -86,6 +88,7 @@ class QuizQuestion {
           : 'Question text not available',
       options: rawOptions,
       points: (data['points'] as num?)?.toInt() ?? 1,
+      correctOption: (data['correctOption'] as String?)?.trim() ?? '',
     );
   }
 }

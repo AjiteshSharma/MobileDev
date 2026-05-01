@@ -151,7 +151,7 @@ class TeacherDashboard extends StatelessWidget {
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           subtitle: Text(
-                            '${quiz.subject} • ${quiz.batch} • $formatted',
+                            '${quiz.subject} - ${quiz.batch} - $formatted',
                           ),
                           trailing: _StatusBadge(label: status),
                         );

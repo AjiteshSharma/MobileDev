@@ -73,7 +73,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
   Future<void> _pickExcelFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['xlsx', 'xls', 'csv'],
+      allowedExtensions: const ['xlsx', 'csv'],
       withData: true,
     );
 
@@ -127,6 +127,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
         batch: _batchController.text,
         fileBytes: file.bytes!,
         fileName: file.name,
+        fileExtension: file.extension,
       );
 
       if (!mounted) {
@@ -259,7 +260,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
                           ),
                           const SizedBox(height: 8),
                           const Text(
-                            'Supported formats: .xlsx, .xls, .csv. The backend Cloud Function should parse this file into quiz questions.',
+                            'Supported formats: .xlsx, .csv. This app parses the sheet locally and uploads a ready quiz to Firebase.',
                           ),
                           const SizedBox(height: 16),
                           Container(

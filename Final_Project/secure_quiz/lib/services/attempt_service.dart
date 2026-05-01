@@ -14,22 +14,26 @@ class AttemptService {
   }) async {
     final attemptId = '${quizId}_$studentId';
     final ref = _db.collection('attempts').doc(attemptId);
-    final snapshot = await ref.get();
+    final createPayload = {
+      'quizId': quizId,
+      'studentId': studentId,
+      'status': 'in_progress',
+      'violationCount': 0,
+      'answers': <String, String>{},
+      'startedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
 
-    if (!snapshot.exists) {
-      await ref.set({
-        'quizId': quizId,
-        'studentId': studentId,
-        'status': 'in_progress',
-        'violationCount': 0,
-        'answers': <String, String>{},
-        'startedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } else {
-      await ref.set({
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    try {
+      await ref.update({'updatedAt': FieldValue.serverTimestamp()});
+    } on FirebaseException catch (error) {
+      final canFallbackToCreate =
+          error.code == 'not-found' || error.code == 'permission-denied';
+      if (!canFallbackToCreate) {
+        rethrow;
+      }
+
+      await ref.set(createPayload);
     }
 
     return attemptId;
@@ -99,6 +103,11 @@ class AttemptService {
     final attemptRef = _db.collection('attempts').doc(attemptId);
     final snapshot = await attemptRef.get();
     final data = snapshot.data() ?? const <String, dynamic>{};
+
+    if (data['submittedAt'] != null) {
+      return;
+    }
+
     final violations = (data['violationCount'] as num?)?.toInt() ?? 0;
     final currentStatus = (data['status'] as String?) ?? 'in_progress';
 
