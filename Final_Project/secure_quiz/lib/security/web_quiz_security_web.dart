@@ -32,12 +32,6 @@ WebQuizSecurityBinding installWebQuizSecurity({
   );
 
   subs.add(
-    html.window.onBlur.listen((_) {
-      onViolation('tab_switch', 'Window lost focus during quiz.');
-    }),
-  );
-
-  subs.add(
     html.document.onCopy.listen((event) {
       event.preventDefault();
       onViolation('copy_attempt', 'Copy shortcut/menu was attempted.');

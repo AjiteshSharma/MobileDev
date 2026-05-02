@@ -86,6 +86,13 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
       return;
     }
 
+    // Flutter web can emit lifecycle transitions during normal browser
+    // focus/interaction. Web tab/app switches are tracked via
+    // web_quiz_security_web.dart visibility hooks instead.
+    if (kIsWeb) {
+      return;
+    }
+
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
@@ -210,9 +217,9 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
     setState(() {
       _attemptStatus = status;
       _violationCount = violations;
-      _answers
-        ..clear()
-        ..addAll(answersMap);
+      // Merge server answers into local state so recent taps stay visible while
+      // async writes are settling on web.
+      _answers.addAll(answersMap);
     });
 
     if (hasSubmittedAt) {
@@ -432,7 +439,10 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
     );
 
     _dialogOpen = false;
-    await _submitQuiz(auto: true);
+    await _submitQuiz(
+      auto: true,
+      reason: 'Attempt disqualified due to repeated security violations.',
+    );
   }
 
   Future<void> _submitQuiz({bool auto = false, String? reason}) async {
@@ -468,7 +478,11 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
     setState(() => _isSubmitting = true);
 
     try {
-      await _attemptService.submitAttempt(attemptId: attemptId);
+      await _attemptService.submitAttempt(
+        attemptId: attemptId,
+        autoSubmitted: auto,
+        submitReason: reason,
+      );
 
       _quizFinished = true;
       _timer?.cancel();
@@ -710,127 +724,124 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
           ],
         ),
         body: Column(
-            children: [
-              LinearProgressIndicator(
-                value: progress,
-                backgroundColor: const Color(0xFFE2E8F0),
-                color: const Color(0xFF005BBF),
-                minHeight: 4,
-              ),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                color: _isReadOnlyPreview
-                    ? const Color(0xFFE2E8F0)
-                    : _attemptStatus == 'disqualified'
-                    ? const Color(0xFFFFE2E2)
-                    : (_violationCount > 0
-                          ? const Color(0xFFFFF5E6)
-                          : const Color(0xFFF8FAFC)),
-                child: Row(
-                  children: [
-                    Icon(
+          children: [
+            LinearProgressIndicator(
+              value: progress,
+              backgroundColor: const Color(0xFFE2E8F0),
+              color: const Color(0xFF005BBF),
+              minHeight: 4,
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: _isReadOnlyPreview
+                  ? const Color(0xFFE2E8F0)
+                  : _attemptStatus == 'disqualified'
+                  ? const Color(0xFFFFE2E2)
+                  : (_violationCount > 0
+                        ? const Color(0xFFFFF5E6)
+                        : const Color(0xFFF8FAFC)),
+              child: Row(
+                children: [
+                  Icon(
+                    _isReadOnlyPreview
+                        ? LucideIcons.eye
+                        : _attemptStatus == 'disqualified'
+                        ? LucideIcons.xCircle
+                        : LucideIcons.shieldAlert,
+                    size: 16,
+                    color: _isReadOnlyPreview
+                        ? const Color(0xFF334155)
+                        : _attemptStatus == 'disqualified'
+                        ? Colors.red
+                        : const Color(0xFF9A6700),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
                       _isReadOnlyPreview
-                          ? LucideIcons.eye
+                          ? 'Teacher preview mode. This session does not record answers, timing, or violations.'
                           : _attemptStatus == 'disqualified'
-                          ? LucideIcons.xCircle
-                          : LucideIcons.shieldAlert,
-                      size: 16,
-                      color: _isReadOnlyPreview
-                          ? const Color(0xFF334155)
-                          : _attemptStatus == 'disqualified'
-                          ? Colors.red
-                          : const Color(0xFF9A6700),
+                          ? 'Attempt disqualified due to repeated violations.'
+                          : 'Security events: $_violationCount  |  Tab switching, copy attempts, and capture attempts are logged.',
+                      style: const TextStyle(fontSize: 12),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _isReadOnlyPreview
-                            ? 'Teacher preview mode. This session does not record answers, timing, or violations.'
-                            : _attemptStatus == 'disqualified'
-                            ? 'Attempt disqualified due to repeated violations.'
-                            : 'Security events: $_violationCount  |  Tab switching, copy attempts, and capture attempts are logged.',
-                        style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Question ${_currentQuestionIndex + 1} of $totalQuestions',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '${question.points} Points',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: const Color(0xFF475569),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      question.text,
+                      style: GoogleFonts.inter(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        height: 1.4,
+                        color: const Color(0xFF1E293B),
                       ),
                     ),
+                    const SizedBox(height: 24),
+                    ...question.options.asMap().entries.map((entry) {
+                      final optionIndex = entry.key;
+                      final optionText = entry.value;
+                      final optionLabel = _optionLabel(optionIndex);
+                      final isSelected = selected == optionText;
+                      final isAnswerSelectionLocked =
+                          _quizFinished ||
+                          _isSubmitting ||
+                          (!_isReadOnlyPreview &&
+                              _attemptStatus == 'submitted');
+
+                      return _buildOption(
+                        optionLabel: optionLabel,
+                        text: optionText,
+                        isSelected: isSelected,
+                        onTap: isAnswerSelectionLocked
+                            ? null
+                            : () => _saveAnswer(question.id, optionText),
+                      );
+                    }),
                   ],
                 ),
               ),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Question ${_currentQuestionIndex + 1} of $totalQuestions',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF64748B),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '${question.points} Points',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: const Color(0xFF475569),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        question.text,
-                        style: GoogleFonts.inter(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          height: 1.4,
-                          color: const Color(0xFF1E293B),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      ...question.options.asMap().entries.map((entry) {
-                        final optionIndex = entry.key;
-                        final optionText = entry.value;
-                        final optionLabel = _optionLabel(optionIndex);
-                        final isSelected = selected == optionText;
-                        final isAnswerSelectionLocked =
-                            _quizFinished ||
-                            _isSubmitting ||
-                            (!_isReadOnlyPreview &&
-                                _attemptStatus == 'submitted');
-
-                        return _buildOption(
-                          optionLabel: optionLabel,
-                          text: optionText,
-                          isSelected: isSelected,
-                          onTap: isAnswerSelectionLocked
-                              ? null
-                              : () => _saveAnswer(question.id, optionText),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            ),
+          ],
         ),
         bottomNavigationBar: _buildBottomNav(totalQuestions),
       ),
@@ -856,59 +867,55 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
             width: isSelected ? 2 : 1,
           ),
         ),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
+        child: InkWell(
           onTap: onTap,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xFF005BBF)
+                        : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
                       color: isSelected
                           ? const Color(0xFF005BBF)
-                          : const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isSelected
-                            ? const Color(0xFF005BBF)
-                            : const Color(0xFFE2E8F0),
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        optionLabel,
-                        style: GoogleFonts.inter(
-                          fontWeight: FontWeight.bold,
-                          color: isSelected
-                              ? Colors.white
-                              : const Color(0xFF64748B),
-                        ),
-                      ),
+                          : const Color(0xFFE2E8F0),
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
+                  child: Center(
                     child: Text(
-                      text,
+                      optionLabel,
                       style: GoogleFonts.inter(
-                        fontSize: 15,
-                        fontWeight: isSelected
-                            ? FontWeight.w600
-                            : FontWeight.w500,
+                        fontWeight: FontWeight.bold,
                         color: isSelected
-                            ? const Color(0xFF005BBF)
-                            : const Color(0xFF334155),
+                            ? Colors.white
+                            : const Color(0xFF64748B),
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      fontWeight: isSelected
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                      color: isSelected
+                          ? const Color(0xFF005BBF)
+                          : const Color(0xFF334155),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

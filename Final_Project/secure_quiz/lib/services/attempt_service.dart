@@ -50,10 +50,10 @@ class AttemptService {
     required String questionId,
     required String selectedOption,
   }) {
-    return _db.collection('attempts').doc(attemptId).set({
+    return _db.collection('attempts').doc(attemptId).update({
       'answers.$questionId': selectedOption,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   Future<int> logViolation({
@@ -99,7 +99,11 @@ class AttemptService {
     });
   }
 
-  Future<void> submitAttempt({required String attemptId}) async {
+  Future<void> submitAttempt({
+    required String attemptId,
+    bool autoSubmitted = false,
+    String? submitReason,
+  }) async {
     final attemptRef = _db.collection('attempts').doc(attemptId);
     final snapshot = await attemptRef.get();
     final data = snapshot.data() ?? const <String, dynamic>{};
@@ -119,6 +123,8 @@ class AttemptService {
     await attemptRef.set({
       'status': nextStatus,
       'isFlagged': violations >= flagThreshold,
+      'autoSubmitted': autoSubmitted,
+      'submitReason': (submitReason ?? '').trim(),
       'submittedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));

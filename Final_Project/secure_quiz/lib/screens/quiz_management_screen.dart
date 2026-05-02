@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../models/quiz_models.dart';
 import '../services/quiz_service.dart';
+import 'teacher_quiz_insights_screen.dart';
 
 enum _QuizFilterTab { active, upcoming, completed, all }
 
@@ -210,7 +211,13 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: InkWell(
-        onTap: () {},
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => TeacherQuizInsightsScreen(quiz: quiz),
+            ),
+          );
+        },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(20),
