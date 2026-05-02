@@ -48,7 +48,11 @@ class QuizSummary {
           : 'General',
       startAt: _toDateTime(data['startAt']) ?? DateTime.now(),
       durationMinutes: (data['durationMinutes'] as num?)?.toInt() ?? 30,
-      batch: (data['batch'] as String?)?.trim() ?? 'All',
+      batch:
+          ((data['batchLabel'] as String?)?.trim().isNotEmpty == true
+              ? (data['batchLabel'] as String).trim()
+              : (data['batch'] as String?)?.trim()) ??
+          'All',
       totalQuestions: (data['totalQuestions'] as num?)?.toInt() ?? 0,
       totalPoints: (data['totalPoints'] as num?)?.toInt() ?? 0,
       createdBy: (data['createdBy'] as String?) ?? '',

@@ -56,9 +56,6 @@ class TeacherDashboard extends StatelessWidget {
           final upcomingCount = quizzes
               .where((quiz) => quiz.isUpcomingAt(now))
               .length;
-          final completedCount = quizzes
-              .where((quiz) => quiz.isPastAt(now))
-              .length;
           final processingCount = quizzes
               .where((quiz) => quiz.status == 'processing')
               .length;
@@ -158,27 +155,6 @@ class TeacherDashboard extends StatelessWidget {
                       },
                     ),
                   ),
-                const SizedBox(height: 24),
-                Card(
-                  color: const Color(0xFFEFF6FF),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          LucideIcons.shieldAlert,
-                          color: Color(0xFF005BBF),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Completed quizzes: $completedCount. Flagged attempt reporting is available via Firestore attempts with status flagged/disqualified.',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               ],
             ),
           );

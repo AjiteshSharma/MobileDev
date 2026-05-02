@@ -73,28 +73,12 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _handleForgotPassword() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      _showSnack('Enter your email first to reset password.');
-      return;
-    }
-
-    try {
-      await _authService.sendPasswordReset(email);
-      if (mounted) {
-        _showSnack('Password reset email sent to $email');
-      }
-    } on FirebaseAuthException catch (error) {
-      _showSnack(_authError(error));
-    }
-  }
-
   Future<void> _showSignupDialog() async {
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController();
     final emailController = TextEditingController(text: _emailController.text);
     final passwordController = TextEditingController();
+    final batchController = TextEditingController();
     AppRole selectedRole = AppRole.student;
     bool isSubmitting = false;
 
@@ -109,6 +93,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 return;
               }
 
+              final dialogNavigator = Navigator.of(
+                context,
+                rootNavigator: true,
+              );
+              var dialogClosed = false;
               setLocalState(() => isSubmitting = true);
               try {
                 await _authService.signUpWithEmailPassword(
@@ -116,23 +105,38 @@ class _LoginScreenState extends State<LoginScreen> {
                   password: passwordController.text,
                   role: selectedRole,
                   displayName: nameController.text,
+                  studentBatch: selectedRole == AppRole.student
+                      ? batchController.text
+                      : null,
                 );
 
-                if (!mounted) {
-                  return;
+                // Close dialog immediately on successful signup.
+                if (dialogNavigator.canPop()) {
+                  dialogClosed = true;
+                  dialogNavigator.pop();
                 }
 
-                Navigator.of(this.context, rootNavigator: true).pop();
-                final route = selectedRole == AppRole.teacher
-                    ? '/teacher'
-                    : '/student';
-                Navigator.pushReplacementNamed(this.context, route);
+                // AppBootstrap's auth stream handles routing after signup.
+                if (mounted) {
+                  _showSnack('Account created successfully.');
+                }
               } on FirebaseAuthException catch (error) {
                 if (mounted) {
                   _showSnack(_authError(error));
                 }
-              } finally {
+              } on FirebaseException catch (error) {
                 if (mounted) {
+                  _showSnack(
+                    error.message ??
+                        'Could not finish account setup. Please retry.',
+                  );
+                }
+              } catch (_) {
+                if (mounted) {
+                  _showSnack('Could not finish account setup. Please retry.');
+                }
+              } finally {
+                if (context.mounted && !dialogClosed) {
                   setLocalState(() => isSubmitting = false);
                 }
               }
@@ -201,10 +205,35 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                         onChanged: (value) {
                           if (value != null) {
-                            setLocalState(() => selectedRole = value);
+                            setLocalState(() {
+                              selectedRole = value;
+                              if (selectedRole != AppRole.student) {
+                                batchController.clear();
+                              }
+                            });
                           }
                         },
                       ),
+                      if (selectedRole == AppRole.student) ...[
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: batchController,
+                          decoration: const InputDecoration(
+                            labelText: 'Batch / Class',
+                            hintText: 'e.g. bca-5a',
+                          ),
+                          validator: (value) {
+                            if (selectedRole != AppRole.student) {
+                              return null;
+                            }
+                            final text = (value ?? '').trim();
+                            if (text.isEmpty) {
+                              return 'Batch is required for students';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -230,10 +259,6 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       },
     );
-
-    nameController.dispose();
-    emailController.dispose();
-    passwordController.dispose();
   }
 
   @override
@@ -304,10 +329,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               'Password',
                               style: TextStyle(fontWeight: FontWeight.w600),
                             ),
-                            TextButton(
-                              onPressed: _handleForgotPassword,
-                              child: const Text('Forgot password?'),
-                            ),
                           ],
                         ),
                         TextField(
@@ -374,12 +395,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Use Firebase Authentication users with role field in Firestore users/{uid}.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
               ],
             ),
           ),
@@ -392,6 +407,8 @@ class _LoginScreenState extends State<LoginScreen> {
     switch (error.code) {
       case 'invalid-email':
         return 'Invalid email format.';
+      case 'missing-email':
+        return 'Please enter your email.';
       case 'user-not-found':
         return 'No account found with this email.';
       case 'wrong-password':
@@ -401,6 +418,19 @@ class _LoginScreenState extends State<LoginScreen> {
         return 'An account already exists for this email.';
       case 'weak-password':
         return 'Please use a stronger password.';
+      case 'invalid-batch':
+        return 'Please enter a valid batch for student account.';
+      case 'network-request-failed':
+        return 'Network error. Check your internet connection and try again.';
+      case 'too-many-requests':
+        return 'Too many requests. Please wait a bit and try again.';
+      case 'operation-not-allowed':
+        return 'Email/password sign-in is not enabled for this project.';
+      case 'unauthorized-domain':
+      case 'unauthorized-continue-uri':
+      case 'invalid-continue-uri':
+      case 'missing-continue-uri':
+        return 'Password reset is blocked for this app domain. Add this domain in Firebase Authentication > Authorized domains.';
       default:
         return error.message ?? 'Authentication failed.';
     }

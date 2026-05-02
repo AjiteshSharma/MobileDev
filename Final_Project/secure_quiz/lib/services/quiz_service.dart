@@ -13,21 +13,23 @@ class QuizService {
   FirebaseFirestore get _db => FirebaseFirestore.instance;
 
   Stream<List<QuizSummary>> streamStudentQuizzes({String? batch}) {
+    final normalizedBatch = _normalizeBatch(batch);
+    if (normalizedBatch.isEmpty) {
+      return Stream.value(const <QuizSummary>[]);
+    }
+
     return _db
         .collection('quizzes')
-        .orderBy('startAt')
+        .where('batch', isEqualTo: normalizedBatch)
         .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
+        .map((snapshot) {
+          final quizzes = snapshot.docs
               .map(QuizSummary.fromSnapshot)
-              .where((quiz) {
-                if (batch == null || batch.trim().isEmpty) {
-                  return true;
-                }
-                return quiz.batch.toLowerCase() == batch.trim().toLowerCase();
-              })
-              .toList(growable: false),
-        );
+              .toList(growable: false);
+          final sorted = List<QuizSummary>.from(quizzes)
+            ..sort((a, b) => a.startAt.compareTo(b.startAt));
+          return sorted;
+        });
   }
 
   Stream<List<QuizSummary>> streamTeacherQuizzes(String teacherId) {
@@ -69,6 +71,11 @@ class QuizService {
     required String? fileExtension,
   }) async {
     final quizRef = _db.collection('quizzes').doc();
+    final batchLabel = batch.trim();
+    final normalizedBatch = _normalizeBatch(batchLabel);
+    if (normalizedBatch.isEmpty) {
+      throw const FormatException('Batch is required to create a quiz.');
+    }
     final resolvedExtension = _resolveFileExtension(
       fileExtension: fileExtension,
       fileName: fileName,
@@ -79,7 +86,8 @@ class QuizService {
       'subject': subject.trim(),
       'startAt': Timestamp.fromDate(startAt),
       'durationMinutes': durationMinutes,
-      'batch': batch.trim(),
+      'batch': normalizedBatch,
+      'batchLabel': batchLabel,
       'createdBy': teacherId,
       'createdByEmail': teacherEmail,
       'createdAt': FieldValue.serverTimestamp(),
@@ -354,6 +362,10 @@ class QuizService {
 
   String _normalizeHeader(String header) {
     return header.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
+
+  String _normalizeBatch(String? input) {
+    return (input ?? '').trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
   }
 
   String _resolveFileExtension({

@@ -1,8 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import '../models/app_role.dart';
 import '../models/quiz_models.dart';
 import '../services/auth_service.dart';
 import '../services/quiz_service.dart';
@@ -36,8 +38,8 @@ class StudentDashboard extends StatelessWidget {
           ),
         ],
       ),
-      body: StreamBuilder<List<QuizSummary>>(
-        stream: quizService.streamStudentQuizzes(),
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: const AuthService().watchUserProfile(student.uid),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -45,121 +47,185 @@ class StudentDashboard extends StatelessWidget {
 
           if (snapshot.hasError) {
             return Center(
-              child: Text('Failed to load quizzes: ${snapshot.error}'),
+              child: Text('Failed to load profile: ${snapshot.error}'),
             );
           }
 
-          final quizzes = snapshot.data ?? const <QuizSummary>[];
-          final now = DateTime.now();
+          final profile = snapshot.data?.data() ?? const <String, dynamic>{};
+          final role = appRoleFromDynamic(profile['role']);
+          if (role != AppRole.student) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('Student profile not configured for this account.'),
+              ),
+            );
+          }
 
-          final active = quizzes
-              .where((quiz) => quiz.status == 'ready' && quiz.isActiveAt(now))
-              .toList(growable: false);
-          final upcoming = quizzes
-              .where((quiz) => quiz.status == 'ready' && quiz.isUpcomingAt(now))
-              .toList(growable: false);
-          final past = quizzes
-              .where((quiz) => quiz.status == 'ready' && quiz.isPastAt(now))
-              .toList(growable: false);
+          final studentBatch = (profile['batch'] as String?)?.trim() ?? '';
+          final studentBatchLabel =
+              ((profile['batchLabel'] as String?)?.trim().isNotEmpty == true
+              ? (profile['batchLabel'] as String).trim()
+              : studentBatch);
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Welcome, ${student.displayName?.trim().isNotEmpty == true ? student.displayName : student.email}',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+          if (studentBatch.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Batch is not assigned to this student account. Contact your teacher/admin.',
+                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Active quizzes: ${active.length} - Upcoming: ${upcoming.length} - Past: ${past.length}',
-                  style: const TextStyle(color: Colors.black54),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Active Quizzes',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                if (active.isEmpty)
-                  const _EmptyCard(message: 'No active quiz right now.')
-                else
-                  ...active.map(
-                    (quiz) => _QuizCard(
-                      quiz: quiz,
-                      statusLabel: 'ACTIVE',
-                      statusColor: Colors.green,
-                      onStart: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => QuizTakingScreen(
-                              quizId: quiz.id,
-                              quizTitle: quiz.title,
-                              durationMinutes: quiz.durationMinutes,
-                            ),
-                          ),
-                        );
-                      },
+              ),
+            );
+          }
+
+          return StreamBuilder<List<QuizSummary>>(
+            stream: quizService.streamStudentQuizzes(batch: studentBatch),
+            builder: (context, quizSnapshot) {
+              if (quizSnapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (quizSnapshot.hasError) {
+                return Center(
+                  child: Text('Failed to load quizzes: ${quizSnapshot.error}'),
+                );
+              }
+
+              final quizzes = quizSnapshot.data ?? const <QuizSummary>[];
+              final now = DateTime.now();
+
+              final active = quizzes
+                  .where(
+                    (quiz) => quiz.status == 'ready' && quiz.isActiveAt(now),
+                  )
+                  .toList(growable: false);
+              final upcoming = quizzes
+                  .where(
+                    (quiz) => quiz.status == 'ready' && quiz.isUpcomingAt(now),
+                  )
+                  .toList(growable: false);
+              final past = quizzes
+                  .where((quiz) => quiz.status == 'ready' && quiz.isPastAt(now))
+                  .toList(growable: false);
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Welcome, ${student.displayName?.trim().isNotEmpty == true ? student.displayName : student.email}',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Upcoming Quizzes',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                if (upcoming.isEmpty)
-                  const _EmptyCard(message: 'No upcoming quizzes scheduled.')
-                else
-                  ...upcoming
-                      .take(8)
-                      .map(
+                    const SizedBox(height: 6),
+                    Text(
+                      'Batch: $studentBatchLabel',
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Active quizzes: ${active.length} - Upcoming: ${upcoming.length} - Past: ${past.length}',
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Active Quizzes',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (active.isEmpty)
+                      const _EmptyCard(message: 'No active quiz right now.')
+                    else
+                      ...active.map(
                         (quiz) => _QuizCard(
                           quiz: quiz,
-                          statusLabel: 'UPCOMING',
-                          statusColor: Colors.blue,
-                          onStart: null,
-                        ),
-                      ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Past Attempts',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                if (past.isEmpty)
-                  const _EmptyCard(message: 'No completed quizzes yet.')
-                else
-                  ...past
-                      .take(5)
-                      .map(
-                        (quiz) => Card(
-                          child: ListTile(
-                            leading: const Icon(LucideIcons.history),
-                            title: Text(quiz.title),
-                            subtitle: Text(
-                              '${quiz.subject} - Ended ${DateFormat('dd MMM yyyy, hh:mm a').format(quiz.endAt)}',
-                            ),
-                            trailing: const Text('View marks'),
-                            onTap: () => Navigator.push(
+                          statusLabel: 'ACTIVE',
+                          statusColor: Colors.green,
+                          onStart: () {
+                            Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => ResultsScreen(
+                                builder: (_) => QuizTakingScreen(
                                   quizId: quiz.id,
                                   quizTitle: quiz.title,
+                                  durationMinutes: quiz.durationMinutes,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Upcoming Quizzes',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (upcoming.isEmpty)
+                      const _EmptyCard(
+                        message: 'No upcoming quizzes scheduled.',
+                      )
+                    else
+                      ...upcoming
+                          .take(8)
+                          .map(
+                            (quiz) => _QuizCard(
+                              quiz: quiz,
+                              statusLabel: 'UPCOMING',
+                              statusColor: Colors.blue,
+                              onStart: null,
+                            ),
+                          ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Past Attempts',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (past.isEmpty)
+                      const _EmptyCard(message: 'No completed quizzes yet.')
+                    else
+                      ...past
+                          .take(5)
+                          .map(
+                            (quiz) => Card(
+                              child: ListTile(
+                                leading: const Icon(LucideIcons.history),
+                                title: Text(quiz.title),
+                                subtitle: Text(
+                                  '${quiz.subject} - Ended ${DateFormat('dd MMM yyyy, hh:mm a').format(quiz.endAt)}',
+                                ),
+                                trailing: const Text('View marks'),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ResultsScreen(
+                                      quizId: quiz.id,
+                                      quizTitle: quiz.title,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
-              ],
-            ),
+                  ],
+                ),
+              );
+            },
           );
         },
       ),

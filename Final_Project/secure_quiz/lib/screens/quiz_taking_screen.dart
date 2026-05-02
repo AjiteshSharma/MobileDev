@@ -117,6 +117,46 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
         return;
       }
 
+      final role = await const AuthService().getRoleForUser(
+        uid: currentUser.uid,
+      );
+      final isTeacherRole = role == AppRole.teacher;
+      var isReadOnlyPreview = isTeacherRole;
+      String? attemptId;
+
+      if (!isReadOnlyPreview) {
+        final userProfile = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUser.uid)
+            .get();
+        final studentBatch = _normalizeBatch(
+          (userProfile.data()?['batch'] as String?) ?? '',
+        );
+        if (studentBatch.isEmpty) {
+          throw StateError(
+            'Your account is missing a batch assignment. Contact your teacher/admin.',
+          );
+        }
+
+        final quizDoc = await FirebaseFirestore.instance
+            .collection('quizzes')
+            .doc(widget.quizId)
+            .get();
+        final quizData = quizDoc.data() ?? const <String, dynamic>{};
+        final quizBatch = _normalizeBatch((quizData['batch'] as String?) ?? '');
+        if (quizBatch.isEmpty) {
+          throw StateError(
+            'This quiz has no batch configured. Ask your teacher to update it.',
+          );
+        }
+
+        if (quizBatch != studentBatch) {
+          throw StateError(
+            'This quiz is for a different batch and cannot be attempted from your account.',
+          );
+        }
+      }
+
       final questions = await _quizService.getQuizQuestions(widget.quizId);
       final fallbackQuestion = QuizQuestion(
         id: 'fallback_q1',
@@ -135,13 +175,6 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
           ? <QuizQuestion>[fallbackQuestion]
           : questions;
 
-      final role = await const AuthService().getRoleForUser(
-        uid: currentUser.uid,
-      );
-      final isTeacherRole = role == AppRole.teacher;
-      var isReadOnlyPreview = isTeacherRole;
-      String? attemptId;
-
       if (!isReadOnlyPreview) {
         try {
           attemptId = await _attemptService.startOrResumeAttempt(
@@ -158,7 +191,7 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
               plugin: 'cloud_firestore',
               code: error.code,
               message:
-                  'Monitored mode blocked by Firestore rules. Ensure users/${currentUser.uid} has role "student" and latest Firestore rules are deployed.',
+                  'You do not have permission to start this quiz from this account.',
             );
           }
           rethrow;
@@ -249,6 +282,10 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
         ),
       ),
     );
+  }
+
+  String _normalizeBatch(String raw) {
+    return raw.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
   }
 
   void _attachWebSecurityHooks() {

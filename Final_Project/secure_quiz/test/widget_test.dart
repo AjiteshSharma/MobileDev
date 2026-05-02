@@ -10,6 +10,6 @@ void main() {
 
     expect(find.text('Sign in'), findsOneWidget);
     expect(find.text('Login to Dashboard'), findsOneWidget);
-    expect(find.text('Forgot password?'), findsOneWidget);
+    expect(find.text('Forgot password?'), findsNothing);
   });
 }

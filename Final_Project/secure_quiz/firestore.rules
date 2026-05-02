@@ -28,25 +28,55 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function userBatch() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().data.batch is string
+        ? userDoc().data.batch
+        : '';
+    }
+
     function quizOwner(quizId) {
       return get(/databases/$(database)/documents/quizzes/$(quizId)).data.createdBy;
+    }
+
+    function quizBatch(quizId) {
+      return exists(/databases/$(database)/documents/quizzes/$(quizId))
+        && get(/databases/$(database)/documents/quizzes/$(quizId)).data.batch is string
+        ? get(/databases/$(database)/documents/quizzes/$(quizId)).data.batch
+        : '';
+    }
+
+    function studentCanAccessQuiz(quizId) {
+      return isStudent()
+        && userBatch() != ''
+        && quizBatch(quizId) == userBatch();
     }
 
     match /users/{userId} {
       allow read: if isOwnUser(userId) || isTeacher();
 
       allow create: if isOwnUser(userId)
-        && request.resource.data.role in ['teacher', 'student'];
+        && request.resource.data.role in ['teacher', 'student']
+        && (
+          request.resource.data.role == 'teacher'
+          || (request.resource.data.batch is string
+            && request.resource.data.batch.size() > 0)
+        );
 
       allow update: if (isOwnUser(userId)
-        && request.resource.data.role == resource.data.role)
+        && request.resource.data.role == resource.data.role
+        && (
+          resource.data.role != 'student'
+          || request.resource.data.batch == resource.data.batch
+        ))
         || isTeacher();
 
       allow delete: if false;
     }
 
     match /quizzes/{quizId} {
-      allow read: if signedIn();
+      allow read: if isTeacher() || studentCanAccessQuiz(quizId);
 
       allow create: if isTeacher()
         && request.resource.data.createdBy == request.auth.uid;
@@ -55,7 +85,7 @@ service cloud.firestore {
         && resource.data.createdBy == request.auth.uid;
 
       match /questions/{questionId} {
-        allow read: if signedIn();
+        allow read: if isTeacher() || studentCanAccessQuiz(quizId);
         allow write: if isTeacher()
           && quizOwner(quizId) == request.auth.uid;
       }
@@ -63,28 +93,46 @@ service cloud.firestore {
 
     match /attempts/{attemptId} {
       allow create: if signedIn()
-        && request.resource.data.studentId == request.auth.uid;
+        && isStudent()
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.quizId is string
+        && studentCanAccessQuiz(request.resource.data.quizId);
 
       allow read: if signedIn() && (
-        resource.data.studentId == request.auth.uid
-        || (isTeacher() && quizOwner(resource.data.quizId) == request.auth.uid)
+        (resource.data.studentId == request.auth.uid
+          && resource.data.quizId is string
+          && studentCanAccessQuiz(resource.data.quizId))
+        || (isTeacher()
+          && resource.data.quizId is string
+          && quizOwner(resource.data.quizId) == request.auth.uid)
       );
 
       allow update: if signedIn() && (
-        resource.data.studentId == request.auth.uid
-        || (isTeacher() && quizOwner(resource.data.quizId) == request.auth.uid)
+        (resource.data.studentId == request.auth.uid
+          && resource.data.quizId is string
+          && studentCanAccessQuiz(resource.data.quizId))
+        || (isTeacher()
+          && resource.data.quizId is string
+          && quizOwner(resource.data.quizId) == request.auth.uid)
       );
 
       allow delete: if false;
 
       match /violations/{violationId} {
         allow read: if signedIn() && (
-          get(/databases/$(database)/documents/attempts/$(attemptId)).data.studentId == request.auth.uid
-          || (isTeacher() && quizOwner(get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId) == request.auth.uid)
+          (get(/databases/$(database)/documents/attempts/$(attemptId)).data.studentId == request.auth.uid
+            && get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId is string
+            && studentCanAccessQuiz(get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId))
+          || (isTeacher()
+            && get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId is string
+            && quizOwner(get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId) == request.auth.uid)
         );
 
         allow create: if signedIn()
-          && get(/databases/$(database)/documents/attempts/$(attemptId)).data.studentId == request.auth.uid;
+          && isStudent()
+          && get(/databases/$(database)/documents/attempts/$(attemptId)).data.studentId == request.auth.uid
+          && get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId is string
+          && studentCanAccessQuiz(get(/databases/$(database)/documents/attempts/$(attemptId)).data.quizId);
 
         allow update, delete: if false;
       }

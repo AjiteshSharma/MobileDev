@@ -259,9 +259,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            'Supported formats: .xlsx, .csv. This app parses the sheet locally and uploads a ready quiz to Firebase.',
-                          ),
+                          const Text('Supported formats: .xlsx, .csv.'),
                           const SizedBox(height: 16),
                           Container(
                             width: double.infinity,
