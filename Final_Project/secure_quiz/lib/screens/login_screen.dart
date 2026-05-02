@@ -1,9 +1,11 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../models/app_role.dart';
-import '../services/auth_service.dart';
+import '../state/auth_view_model.dart';
+import '../widgets/press_scale.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -13,11 +15,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final AuthService _authService = const AuthService();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-
-  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -35,14 +34,12 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    setState(() => _isLoading = true);
-
+    final authViewModel = context.read<AuthViewModel>();
+    if (authViewModel.isLoginLoading) {
+      return;
+    }
     try {
-      await _authService.signInWithEmailPassword(
-        email: email,
-        password: password,
-      );
-      final role = await _authService.getRoleForUser(forceRefreshToken: true);
+      final role = await authViewModel.login(email: email, password: password);
 
       if (!mounted) {
         return;
@@ -59,17 +56,12 @@ class _LoginScreenState extends State<LoginScreen> {
           _showSnack(
             'Account has no role assigned. Contact your administrator.',
           );
-          await _authService.signOut();
           break;
       }
     } on FirebaseAuthException catch (error) {
       _showSnack(_authError(error));
     } catch (_) {
       _showSnack('Unable to sign in right now. Please try again.');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 
@@ -80,11 +72,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final passwordController = TextEditingController();
     final batchController = TextEditingController();
     AppRole selectedRole = AppRole.student;
-    bool isSubmitting = false;
 
     await showDialog<void>(
       context: context,
-      barrierDismissible: !isSubmitting,
+      barrierDismissible: false,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setLocalState) {
@@ -93,14 +84,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 return;
               }
 
+              final authViewModel = context.read<AuthViewModel>();
+              if (authViewModel.isSignupLoading) {
+                return;
+              }
+
               final dialogNavigator = Navigator.of(
                 context,
                 rootNavigator: true,
               );
-              var dialogClosed = false;
-              setLocalState(() => isSubmitting = true);
               try {
-                await _authService.signUpWithEmailPassword(
+                await authViewModel.signup(
                   email: emailController.text,
                   password: passwordController.text,
                   role: selectedRole,
@@ -112,7 +106,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 // Close dialog immediately on successful signup.
                 if (dialogNavigator.canPop()) {
-                  dialogClosed = true;
                   dialogNavigator.pop();
                 }
 
@@ -135,125 +128,148 @@ class _LoginScreenState extends State<LoginScreen> {
                 if (mounted) {
                   _showSnack('Could not finish account setup. Please retry.');
                 }
-              } finally {
-                if (context.mounted && !dialogClosed) {
-                  setLocalState(() => isSubmitting = false);
-                }
               }
             }
 
-            return AlertDialog(
-              title: const Text('Create account'),
-              content: Form(
-                key: formKey,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextFormField(
-                        controller: nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Full name',
-                        ),
-                        validator: (value) => (value ?? '').trim().isEmpty
-                            ? 'Name is required'
-                            : null,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: emailController,
-                        decoration: const InputDecoration(labelText: 'Email'),
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (value) {
-                          final text = (value ?? '').trim();
-                          if (text.isEmpty) {
-                            return 'Email is required';
-                          }
-                          if (!text.contains('@')) {
-                            return 'Enter a valid email';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: passwordController,
-                        decoration: const InputDecoration(
-                          labelText: 'Password',
-                        ),
-                        obscureText: true,
-                        validator: (value) {
-                          if ((value ?? '').length < 6) {
-                            return 'Password must be at least 6 characters';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<AppRole>(
-                        initialValue: selectedRole,
-                        decoration: const InputDecoration(labelText: 'Role'),
-                        items: const [
-                          DropdownMenuItem(
-                            value: AppRole.student,
-                            child: Text('Student'),
+            return Consumer<AuthViewModel>(
+              builder: (context, authViewModel, _) {
+                final isSubmitting = authViewModel.isSignupLoading;
+                return AlertDialog(
+                  title: const Text('Create account'),
+                  content: Form(
+                    key: formKey,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextFormField(
+                            controller: nameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Full name',
+                            ),
+                            validator: (value) => (value ?? '').trim().isEmpty
+                                ? 'Name is required'
+                                : null,
                           ),
-                          DropdownMenuItem(
-                            value: AppRole.teacher,
-                            child: Text('Teacher'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setLocalState(() {
-                              selectedRole = value;
-                              if (selectedRole != AppRole.student) {
-                                batchController.clear();
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: emailController,
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            validator: (value) {
+                              final text = (value ?? '').trim();
+                              if (text.isEmpty) {
+                                return 'Email is required';
                               }
-                            });
-                          }
-                        },
-                      ),
-                      if (selectedRole == AppRole.student) ...[
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: batchController,
-                          decoration: const InputDecoration(
-                            labelText: 'Batch / Class',
-                            hintText: 'e.g. bca-5a',
-                          ),
-                          validator: (value) {
-                            if (selectedRole != AppRole.student) {
+                              if (!text.contains('@')) {
+                                return 'Enter a valid email';
+                              }
                               return null;
-                            }
-                            final text = (value ?? '').trim();
-                            if (text.isEmpty) {
-                              return 'Batch is required for students';
-                            }
-                            return null;
-                          },
-                        ),
-                      ],
-                    ],
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: passwordController,
+                            decoration: const InputDecoration(
+                              labelText: 'Password',
+                            ),
+                            obscureText: true,
+                            validator: (value) {
+                              if ((value ?? '').length < 6) {
+                                return 'Password must be at least 6 characters';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<AppRole>(
+                            initialValue: selectedRole,
+                            decoration: const InputDecoration(
+                              labelText: 'Role',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: AppRole.student,
+                                child: Text('Student'),
+                              ),
+                              DropdownMenuItem(
+                                value: AppRole.teacher,
+                                child: Text('Teacher'),
+                              ),
+                            ],
+                            onChanged: isSubmitting
+                                ? null
+                                : (value) {
+                                    if (value != null) {
+                                      setLocalState(() {
+                                        selectedRole = value;
+                                        if (selectedRole != AppRole.student) {
+                                          batchController.clear();
+                                        }
+                                      });
+                                    }
+                                  },
+                          ),
+                          if (selectedRole == AppRole.student) ...[
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: batchController,
+                              decoration: const InputDecoration(
+                                labelText: 'Batch / Class',
+                                hintText: 'e.g. bca-5a',
+                              ),
+                              validator: (value) {
+                                if (selectedRole != AppRole.student) {
+                                  return null;
+                                }
+                                final text = (value ?? '').trim();
+                                if (text.isEmpty) {
+                                  return 'Batch is required for students';
+                                }
+                                return null;
+                              },
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting ? null : () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: isSubmitting ? null : submit,
-                  child: isSubmitting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Create'),
-                ),
-              ],
+                  actions: [
+                    TextButton(
+                      onPressed: isSubmitting
+                          ? null
+                          : () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    PressScale(
+                      onTap: isSubmitting ? null : submit,
+                      child: ElevatedButton(
+                        onPressed: isSubmitting ? null : submit,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          transitionBuilder: (child, animation) =>
+                              FadeTransition(opacity: animation, child: child),
+                          child: isSubmitting
+                              ? const SizedBox(
+                                  key: ValueKey('signup-loading'),
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text(
+                                  'Create',
+                                  key: ValueKey('signup-text'),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
@@ -341,55 +357,80 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: _isLoading ? null : _handleLogin,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.primary,
-                            minimumSize: const Size(double.infinity, 56),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                        Consumer<AuthViewModel>(
+                          builder: (context, authViewModel, _) {
+                            final isLoading = authViewModel.isLoginLoading;
+                            return PressScale(
+                              onTap: isLoading ? null : _handleLogin,
+                              child: ElevatedButton(
+                                onPressed: isLoading ? null : _handleLogin,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.primary,
+                                  minimumSize: const Size(double.infinity, 56),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      'Login to Dashboard',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Icon(
-                                      LucideIcons.arrowRight,
-                                      size: 18,
-                                      color: Colors.white,
-                                    ),
-                                  ],
                                 ),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  transitionBuilder: (child, animation) =>
+                                      FadeTransition(
+                                        opacity: animation,
+                                        child: ScaleTransition(
+                                          scale: animation,
+                                          child: child,
+                                        ),
+                                      ),
+                                  child: isLoading
+                                      ? const SizedBox(
+                                          key: ValueKey('login-loading'),
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Row(
+                                          key: ValueKey('login-text'),
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              'Login to Dashboard',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Icon(
+                                              LucideIcons.arrowRight,
+                                              size: 18,
+                                              color: Colors.white,
+                                            ),
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 16),
-                        OutlinedButton(
-                          onPressed: _showSignupDialog,
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 50),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                        PressScale(
+                          onTap: _showSignupDialog,
+                          child: OutlinedButton(
+                            onPressed: _showSignupDialog,
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                             ),
+                            child: const Text('Create new account'),
                           ),
-                          child: const Text('Create new account'),
                         ),
                       ],
                     ),

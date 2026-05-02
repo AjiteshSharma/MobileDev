@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:secure_quiz/firebase_options.dart';
 import 'package:secure_quiz/models/app_role.dart';
@@ -13,6 +14,7 @@ import 'package:secure_quiz/screens/results_screen.dart';
 import 'package:secure_quiz/screens/student_dashboard.dart';
 import 'package:secure_quiz/screens/teacher_dashboard.dart';
 import 'package:secure_quiz/services/auth_service.dart';
+import 'package:secure_quiz/state/auth_view_model.dart';
 import 'package:secure_quiz/theme/app_theme.dart';
 
 Future<void> main() async {
@@ -37,25 +39,30 @@ class EduAssessApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'EduAssess',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      home: AppBootstrap(firebaseError: firebaseError),
-      routes: {
-        '/login': (context) => const LoginScreen(),
-        '/teacher': (context) => const TeacherDashboard(),
-        '/student': (context) => const StudentDashboard(),
-        '/results': (context) => const ResultsScreen(),
-        '/manage-quizzes': (context) => const QuizManagementScreen(),
-        '/create-quiz': (context) => const CreateQuizScreen(),
-        '/quiz-preview': (context) => const QuizPreviewScreen(),
-        '/take-quiz': (context) => const QuizTakingScreen(
-          quizId: 'demo_quiz',
-          quizTitle: 'Demo Quiz',
-          durationMinutes: 30,
-        ),
-      },
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthViewModel>(create: (_) => AuthViewModel()),
+      ],
+      child: MaterialApp(
+        title: 'EduAssess',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        home: AppBootstrap(firebaseError: firebaseError),
+        routes: {
+          '/login': (context) => const LoginScreen(),
+          '/teacher': (context) => const TeacherDashboard(),
+          '/student': (context) => const StudentDashboard(),
+          '/results': (context) => const ResultsScreen(),
+          '/manage-quizzes': (context) => const QuizManagementScreen(),
+          '/create-quiz': (context) => const CreateQuizScreen(),
+          '/quiz-preview': (context) => const QuizPreviewScreen(),
+          '/take-quiz': (context) => const QuizTakingScreen(
+            quizId: 'demo_quiz',
+            quizTitle: 'Demo Quiz',
+            durationMinutes: 30,
+          ),
+        },
+      ),
     );
   }
 }

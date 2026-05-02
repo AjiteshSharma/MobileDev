@@ -8,6 +8,8 @@ import '../models/app_role.dart';
 import '../models/quiz_models.dart';
 import '../services/auth_service.dart';
 import '../services/quiz_service.dart';
+import '../widgets/fade_slide_in.dart';
+import '../widgets/press_scale.dart';
 import 'quiz_taking_screen.dart';
 import 'results_screen.dart';
 
@@ -144,11 +146,16 @@ class StudentDashboard extends StatelessWidget {
                     if (active.isEmpty)
                       const _EmptyCard(message: 'No active quiz right now.')
                     else
-                      ...active.map(
-                        (quiz) => _QuizCard(
+                      ...active.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final quiz = entry.value;
+                        return _QuizCard(
                           quiz: quiz,
                           statusLabel: 'ACTIVE',
                           statusColor: Colors.green,
+                          animationDelay: Duration(
+                            milliseconds: 80 + (index * 40),
+                          ),
                           onStart: () {
                             Navigator.push(
                               context,
@@ -161,8 +168,8 @@ class StudentDashboard extends StatelessWidget {
                               ),
                             );
                           },
-                        ),
-                      ),
+                        );
+                      }),
                     const SizedBox(height: 24),
                     const Text(
                       'Upcoming Quizzes',
@@ -177,16 +184,19 @@ class StudentDashboard extends StatelessWidget {
                         message: 'No upcoming quizzes scheduled.',
                       )
                     else
-                      ...upcoming
-                          .take(8)
-                          .map(
-                            (quiz) => _QuizCard(
-                              quiz: quiz,
-                              statusLabel: 'UPCOMING',
-                              statusColor: Colors.blue,
-                              onStart: null,
-                            ),
+                      ...upcoming.take(8).toList().asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final quiz = entry.value;
+                        return _QuizCard(
+                          quiz: quiz,
+                          statusLabel: 'UPCOMING',
+                          statusColor: Colors.blue,
+                          animationDelay: Duration(
+                            milliseconds: 120 + (index * 30),
                           ),
+                          onStart: null,
+                        );
+                      }),
                     const SizedBox(height: 24),
                     const Text(
                       'Past Attempts',
@@ -238,58 +248,72 @@ class _QuizCard extends StatelessWidget {
     required this.quiz,
     required this.statusLabel,
     required this.statusColor,
+    required this.animationDelay,
     required this.onStart,
   });
 
   final QuizSummary quiz;
   final String statusLabel;
   final Color statusColor;
+  final Duration animationDelay;
   final VoidCallback? onStart;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return FadeSlideIn(
+      delay: animationDelay,
+      child: PressScale(
+        onTap: onStart,
+        child: Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      statusLabel,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      DateFormat('dd MMM yyyy, hh:mm a').format(quiz.startAt),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Text(
-                  statusLabel,
-                  style: TextStyle(
-                    color: statusColor,
+                  quiz.title,
+                  style: const TextStyle(
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                const SizedBox(height: 6),
                 Text(
-                  DateFormat('dd MMM yyyy, hh:mm a').format(quiz.startAt),
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  '${quiz.subject} - ${quiz.batch} - ${quiz.durationMinutes} min - ${quiz.totalQuestions} questions',
+                  style: const TextStyle(color: Colors.black54),
                 ),
+                if (onStart != null) ...[
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: onStart,
+                    icon: const Icon(LucideIcons.play),
+                    label: const Text('Start Quiz'),
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              quiz.title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${quiz.subject} - ${quiz.batch} - ${quiz.durationMinutes} min - ${quiz.totalQuestions} questions',
-              style: const TextStyle(color: Colors.black54),
-            ),
-            if (onStart != null) ...[
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                onPressed: onStart,
-                icon: const Icon(LucideIcons.play),
-                label: const Text('Start Quiz'),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
