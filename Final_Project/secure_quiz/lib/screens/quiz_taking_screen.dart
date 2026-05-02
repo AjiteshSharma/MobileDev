@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:screen_protector/screen_protector.dart';
@@ -61,11 +62,13 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   bool _dialogOpen = false;
   bool _isReadOnlyPreview = false;
   bool _navigatedToResults = false;
+  bool _isAndroidImmersiveEnabled = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_enterQuizImmersiveMode());
     _remainingSeconds = widget.durationMinutes * 60;
     _initializeSecureQuizSession();
   }
@@ -76,12 +79,20 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
     _attemptSubscription?.cancel();
     _webSecurityBinding?.dispose();
     _timer?.cancel();
+    unawaited(_restoreSystemUiMode());
     _disableSecureScreen();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        state == AppLifecycleState.resumed &&
+        !_quizFinished) {
+      unawaited(_enterQuizImmersiveMode());
+    }
+
     if (_quizFinished || _attemptId == null) {
       return;
     }
@@ -100,6 +111,36 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
         type: 'app_switch',
         details: 'App moved to $state during quiz attempt.',
       );
+    }
+  }
+
+  Future<void> _enterQuizImmersiveMode() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+
+    _isAndroidImmersiveEnabled = true;
+
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } catch (_) {
+      // Ignore unsupported device configuration.
+    }
+  }
+
+  Future<void> _restoreSystemUiMode() async {
+    if (!_isAndroidImmersiveEnabled ||
+        kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+
+    _isAndroidImmersiveEnabled = false;
+
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    } catch (_) {
+      // Ignore unsupported device configuration.
     }
   }
 
