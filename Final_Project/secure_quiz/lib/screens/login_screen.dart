@@ -407,8 +407,6 @@ class _LoginScreenState extends State<LoginScreen> {
     switch (error.code) {
       case 'invalid-email':
         return 'Invalid email format.';
-      case 'missing-email':
-        return 'Please enter your email.';
       case 'user-not-found':
         return 'No account found with this email.';
       case 'wrong-password':
@@ -426,11 +424,6 @@ class _LoginScreenState extends State<LoginScreen> {
         return 'Too many requests. Please wait a bit and try again.';
       case 'operation-not-allowed':
         return 'Email/password sign-in is not enabled for this project.';
-      case 'unauthorized-domain':
-      case 'unauthorized-continue-uri':
-      case 'invalid-continue-uri':
-      case 'missing-continue-uri':
-        return 'Password reset is blocked for this app domain. Add this domain in Firebase Authentication > Authorized domains.';
       default:
         return error.message ?? 'Authentication failed.';
     }

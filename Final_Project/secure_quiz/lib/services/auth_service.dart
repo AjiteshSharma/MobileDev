@@ -71,18 +71,6 @@ class AuthService {
     return credential;
   }
 
-  Future<void> sendPasswordReset(String email) async {
-    final normalized = email.trim().toLowerCase();
-    if (normalized.isEmpty) {
-      throw FirebaseAuthException(
-        code: 'missing-email',
-        message: 'Email is required.',
-      );
-    }
-
-    await _auth.sendPasswordResetEmail(email: normalized);
-  }
-
   Future<void> signOut() => _auth.signOut();
 
   Future<AppRole> getRoleForUser({
