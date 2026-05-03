@@ -45,7 +45,7 @@ class QuizPreviewScreen extends StatelessWidget {
                     'Once started, the timer cannot be paused.',
                   ),
                   _buildInstructionItem(
-                    'Browser tab switching will trigger a warning; 3 warnings result in auto-submission.',
+                    'App switching and capture attempts are monitored on mobile quiz attempts.',
                   ),
                   const SizedBox(height: 40),
                 ],

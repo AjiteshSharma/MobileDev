@@ -15,7 +15,6 @@ import '../services/attempt_service.dart';
 import '../services/auth_service.dart';
 import '../services/quiz_service.dart';
 import 'results_screen.dart';
-import '../security/web_quiz_security.dart' as web_security;
 
 class QuizTakingScreen extends StatefulWidget {
   const QuizTakingScreen({
@@ -45,7 +44,6 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _attemptSubscription;
-  web_security.WebQuizSecurityBinding? _webSecurityBinding;
   Timer? _timer;
 
   String? _attemptId;
@@ -77,7 +75,6 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _attemptSubscription?.cancel();
-    _webSecurityBinding?.dispose();
     _timer?.cancel();
     unawaited(_restoreSystemUiMode());
     _disableSecureScreen();
@@ -97,9 +94,7 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
       return;
     }
 
-    // Flutter web can emit lifecycle transitions during normal browser
-    // focus/interaction. Web tab/app switches are tracked via
-    // web_quiz_security_web.dart visibility hooks instead.
+    // App lifecycle violation tracking is mobile-only.
     if (kIsWeb) {
       return;
     }
@@ -147,7 +142,6 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   Future<void> _initializeSecureQuizSession() async {
     try {
       await _enableSecureScreen();
-      _attachWebSecurityHooks();
 
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
@@ -329,18 +323,11 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
     return raw.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
   }
 
-  void _attachWebSecurityHooks() {
-    if (!kIsWeb || _webSecurityBinding != null) {
+  Future<void> _enableSecureScreen() async {
+    if (kIsWeb) {
       return;
     }
 
-    _webSecurityBinding = web_security.installWebQuizSecurity(
-      onViolation: (type, details) =>
-          _logViolation(type: type, details: details),
-    );
-  }
-
-  Future<void> _enableSecureScreen() async {
     try {
       await ScreenProtector.preventScreenshotOn();
       await ScreenProtector.protectDataLeakageOn();
@@ -368,6 +355,10 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   }
 
   Future<void> _disableSecureScreen() async {
+    if (kIsWeb) {
+      return;
+    }
+
     try {
       ScreenProtector.removeListener();
       await ScreenProtector.preventScreenshotOff();
@@ -379,6 +370,10 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   }
 
   Future<void> _checkScreenRecordingAtStart() async {
+    if (kIsWeb) {
+      return;
+    }
+
     try {
       final isRecording = await ScreenProtector.isRecording();
       if (isRecording) {
@@ -841,7 +836,9 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                           ? 'Teacher preview mode. This session does not record answers, timing, or violations.'
                           : _attemptStatus == 'disqualified'
                           ? 'Attempt disqualified due to repeated violations.'
-                          : 'Security events: $_violationCount  |  Tab switching, copy attempts, and capture attempts are logged.',
+                          : kIsWeb
+                          ? 'Security monitoring is available on mobile app only.'
+                          : 'Security events: $_violationCount  |  App switching, screenshot, and recording events are logged.',
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),

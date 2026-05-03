@@ -30,7 +30,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     final attemptSnap = await _resolveAttemptSnapshot(user.uid);
     if (attemptSnap == null || !attemptSnap.exists) {
-      throw StateError('No attempt found yet for this account.');
+      final requestedQuizId = (widget.quizId ?? '').trim();
+      if (requestedQuizId.isEmpty) {
+        throw StateError('No attempt found yet for this account.');
+      }
+      return _buildMissedResultData(quizId: requestedQuizId);
     }
 
     final attemptData = attemptSnap.data() ?? const <String, dynamic>{};
@@ -40,6 +44,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
       throw StateError('Attempt is missing quiz reference.');
     }
 
+    return _buildAttemptResultData(
+      attemptId: attemptSnap.id,
+      attemptData: attemptData,
+      resolvedQuizId: resolvedQuizId,
+    );
+  }
+
+  Future<_LiveResultData> _buildAttemptResultData({
+    required String attemptId,
+    required Map<String, dynamic> attemptData,
+    required String resolvedQuizId,
+  }) async {
     final quizSnap = await _db.collection('quizzes').doc(resolvedQuizId).get();
     final quizData = quizSnap.data() ?? const <String, dynamic>{};
     final questions = await _quizService.getQuizQuestions(resolvedQuizId);
@@ -111,7 +127,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               : 'Quiz Result');
 
     return _LiveResultData(
-      attemptId: attemptSnap.id,
+      attemptId: attemptId,
       quizId: resolvedQuizId,
       title: title,
       status: status,
@@ -124,6 +140,69 @@ class _ResultsScreenState extends State<ResultsScreen> {
       totalQuestions: questions.length,
       violationCount: violationCount,
       questionResults: questionResults,
+      isMissed: false,
+    );
+  }
+
+  Future<_LiveResultData> _buildMissedResultData({
+    required String quizId,
+  }) async {
+    final quizSnap = await _db.collection('quizzes').doc(quizId).get();
+    if (!quizSnap.exists) {
+      throw StateError('Quiz not found for review.');
+    }
+
+    final quizData = quizSnap.data() ?? const <String, dynamic>{};
+    final startAt = _toDateTime(quizData['startAt']);
+    final durationMinutes = (quizData['durationMinutes'] as num?)?.toInt() ?? 0;
+    final endAt = startAt?.add(Duration(minutes: durationMinutes));
+    if (endAt != null && DateTime.now().isBefore(endAt)) {
+      throw StateError(
+        'This quiz is still active. Submit your attempt to view results.',
+      );
+    }
+
+    final questions = await _quizService.getQuizQuestions(quizId);
+    final questionResults = questions
+        .map(
+          (question) => _QuestionResult(
+            question: question,
+            selectedOption: '',
+            isCorrect: false,
+            isAnswered: false,
+          ),
+        )
+        .toList(growable: false);
+
+    var totalPoints = 0;
+    for (final question in questions) {
+      totalPoints += question.points;
+    }
+    if (totalPoints == 0) {
+      totalPoints = (quizData['totalPoints'] as num?)?.toInt() ?? 0;
+    }
+
+    final title = widget.quizTitle?.trim().isNotEmpty == true
+        ? widget.quizTitle!.trim()
+        : ((quizData['title'] as String?)?.trim().isNotEmpty == true
+              ? (quizData['title'] as String).trim()
+              : 'Missed Quiz');
+
+    return _LiveResultData(
+      attemptId: 'N/A (MISSED)',
+      quizId: quizId,
+      title: title,
+      status: 'MISSED',
+      percentage: 0,
+      pointsSecured: 0,
+      totalPoints: totalPoints,
+      correctCount: 0,
+      incorrectCount: 0,
+      unansweredCount: questions.length,
+      totalQuestions: questions.length,
+      violationCount: 0,
+      questionResults: questionResults,
+      isMissed: true,
     );
   }
 
@@ -131,40 +210,58 @@ class _ResultsScreenState extends State<ResultsScreen> {
     String uid,
   ) async {
     if ((widget.attemptId ?? '').trim().isNotEmpty) {
-      return _db.collection('attempts').doc(widget.attemptId!.trim()).get();
+      try {
+        return await _db
+            .collection('attempts')
+            .doc(widget.attemptId!.trim())
+            .get();
+      } on FirebaseException catch (error) {
+        if (error.code == 'permission-denied') {
+          return null;
+        }
+        rethrow;
+      }
     }
 
     final requestedQuizId = (widget.quizId ?? '').trim();
     if (requestedQuizId.isNotEmpty) {
-      // Primary lookup: canonical attempt id pattern used by AttemptService.
-      final directId = '${requestedQuizId}_$uid';
-      final directSnap = await _db.collection('attempts').doc(directId).get();
-      if (directSnap.exists) {
-        return directSnap;
-      }
+      try {
+        final quizAttempts = await _db
+            .collection('attempts')
+            .where('studentId', isEqualTo: uid)
+            .where('quizId', isEqualTo: requestedQuizId)
+            .get();
 
-      // Fallback lookup: any attempt document for this quiz + student.
-      final quizAttempts = await _db
-          .collection('attempts')
-          .where('studentId', isEqualTo: uid)
-          .where('quizId', isEqualTo: requestedQuizId)
-          .get();
-
-      if (quizAttempts.docs.isNotEmpty) {
-        final sortedQuizAttempts = quizAttempts.docs.toList(growable: false)
-          ..sort(
-            (a, b) => _sortKeyForAttempt(
-              b.data(),
-            ).compareTo(_sortKeyForAttempt(a.data())),
-          );
-        return sortedQuizAttempts.first;
+        if (quizAttempts.docs.isNotEmpty) {
+          final sortedQuizAttempts = quizAttempts.docs.toList(growable: false)
+            ..sort(
+              (a, b) => _sortKeyForAttempt(
+                b.data(),
+              ).compareTo(_sortKeyForAttempt(a.data())),
+            );
+          return sortedQuizAttempts.first;
+        }
+      } on FirebaseException catch (error) {
+        if (error.code == 'permission-denied') {
+          return null;
+        }
+        rethrow;
       }
+      return null;
     }
 
-    final snapshot = await _db
-        .collection('attempts')
-        .where('studentId', isEqualTo: uid)
-        .get();
+    QuerySnapshot<Map<String, dynamic>> snapshot;
+    try {
+      snapshot = await _db
+          .collection('attempts')
+          .where('studentId', isEqualTo: uid)
+          .get();
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        return null;
+      }
+      rethrow;
+    }
 
     if (snapshot.docs.isEmpty) {
       return null;
@@ -244,10 +341,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
               children: [
                 Row(
                   children: [
-                    const Text(
-                      'Assessment Completed',
+                    Text(
+                      result.isMissed
+                          ? 'Assessment Missed'
+                          : 'Assessment Completed',
                       style: TextStyle(
-                        color: Colors.grey,
+                        color: result.isMissed ? Colors.orange : Colors.grey,
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 1.2,
@@ -265,6 +364,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (result.isMissed) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'You missed this quiz. This page shows the answer key and total marks.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ],
                 const SizedBox(height: 24),
                 Card(
                   child: Padding(
@@ -337,7 +443,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
-                                  'Violations: ${result.violationCount}',
+                                  result.isMissed
+                                      ? 'Attempt: Not submitted'
+                                      : 'Violations: ${result.violationCount}',
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: Colors.black54,
@@ -414,9 +522,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 ElevatedButton.icon(
                   onPressed: () => _showAnswerReview(result),
                   icon: const Icon(LucideIcons.fileText, color: Colors.white),
-                  label: const Text(
-                    'Review Answers',
-                    style: TextStyle(
+                  label: Text(
+                    result.isMissed ? 'View Answer Key' : 'Review Answers',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                     ),
@@ -481,7 +589,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               final item = result.questionResults[index];
               final selectedText = item.isAnswered
                   ? item.selectedOption
-                  : 'Not answered';
+                  : (result.isMissed ? 'Not attempted' : 'Not answered');
               final answerColor = !item.isAnswered
                   ? Colors.orange
                   : (item.isCorrect ? Colors.green : Colors.red);
@@ -528,6 +636,7 @@ class _StatusPill extends StatelessWidget {
       'SUBMITTED' => (const Color(0xFFDDF4E1), const Color(0xFF2E7D32)),
       'FLAGGED' => (const Color(0xFFFFF3CD), const Color(0xFF8A6D3B)),
       'DISQUALIFIED' => (const Color(0xFFFFE2E2), const Color(0xFFB71C1C)),
+      'MISSED' => (const Color(0xFFFFF4E5), const Color(0xFF9A6700)),
       _ => (const Color(0xFFE2E8F0), const Color(0xFF334155)),
     };
 
@@ -565,6 +674,7 @@ class _LiveResultData {
     required this.totalQuestions,
     required this.violationCount,
     required this.questionResults,
+    required this.isMissed,
   });
 
   final String attemptId;
@@ -580,6 +690,7 @@ class _LiveResultData {
   final int totalQuestions;
   final int violationCount;
   final List<_QuestionResult> questionResults;
+  final bool isMissed;
 }
 
 class _QuestionResult {
