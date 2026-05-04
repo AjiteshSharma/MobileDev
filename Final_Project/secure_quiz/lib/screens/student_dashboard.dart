@@ -8,6 +8,7 @@ import '../models/app_role.dart';
 import '../models/quiz_models.dart';
 import '../services/auth_service.dart';
 import '../services/quiz_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/fade_slide_in.dart';
 import '../widgets/press_scale.dart';
 import 'quiz_taking_screen.dart';
@@ -26,20 +27,7 @@ class StudentDashboard extends StatelessWidget {
     final quizService = const QuizService();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FF),
-      appBar: AppBar(
-        title: const Text('Student Dashboard'),
-        actions: [
-          IconButton(
-            onPressed: () => Navigator.pushNamed(context, '/results'),
-            icon: const Icon(LucideIcons.barChart3),
-          ),
-          IconButton(
-            onPressed: () => const AuthService().signOut(),
-            icon: const Icon(LucideIcons.logOut),
-          ),
-        ],
-      ),
+      backgroundColor: AppTheme.midnight,
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: const AuthService().watchUserProfile(student.uid),
         builder: (context, snapshot) {
@@ -112,127 +100,145 @@ class StudentDashboard extends StatelessWidget {
                   .where((quiz) => quiz.status == 'ready' && quiz.isPastAt(now))
                   .toList(growable: false);
 
-              return SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Welcome, ${student.displayName?.trim().isNotEmpty == true ? student.displayName : student.email}',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
+              return SafeArea(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _HeaderBar(
+                        rightLabel: DateFormat('MMMM d').format(now),
+                        onStatsTap: () =>
+                            Navigator.pushNamed(context, '/results'),
+                        onProfileTap: () => const AuthService().signOut(),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Batch: $studentBatchLabel',
-                      style: const TextStyle(color: Colors.black54),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Active quizzes: ${active.length} - Upcoming: ${upcoming.length} - Past: ${past.length}',
-                      style: const TextStyle(color: Colors.black54),
-                    ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Active Quizzes',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(height: 10),
+                      Text(
+                        'Batch: $studentBatchLabel',
+                        style: const TextStyle(
+                          color: AppTheme.textMuted,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (active.isEmpty)
-                      const _EmptyCard(message: 'No active quiz right now.')
-                    else
-                      ...active.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final quiz = entry.value;
-                        return _QuizCard(
-                          quiz: quiz,
-                          statusLabel: 'ACTIVE',
-                          statusColor: Colors.green,
-                          animationDelay: Duration(
-                            milliseconds: 80 + (index * 40),
-                          ),
-                          onStart: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => QuizTakingScreen(
-                                  quizId: quiz.id,
-                                  quizTitle: quiz.title,
-                                  durationMinutes: quiz.durationMinutes,
+                      const SizedBox(height: 18),
+                      const Text(
+                        'My quizzes',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (active.isEmpty && upcoming.isEmpty)
+                        const _EmptyCard(
+                          message: 'No active or upcoming quiz right now.',
+                        )
+                      else ...[
+                        ...active.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final quiz = entry.value;
+                          return _QuizHabitCard(
+                            quiz: quiz,
+                            statusLabel: 'ACTIVE',
+                            statusColor: Colors.green,
+                            animationDelay: Duration(
+                              milliseconds: 60 + (index * 35),
+                            ),
+                            actionLabel: 'Start',
+                            onActionTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => QuizTakingScreen(
+                                    quizId: quiz.id,
+                                    quizTitle: quiz.title,
+                                    durationMinutes: quiz.durationMinutes,
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        );
-                      }),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Upcoming Quizzes',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                              );
+                            },
+                          );
+                        }),
+                        ...upcoming.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final quiz = entry.value;
+                          return _QuizHabitCard(
+                            quiz: quiz,
+                            statusLabel: 'UPCOMING',
+                            statusColor: const Color(0xFF8AA3E6),
+                            animationDelay: Duration(
+                              milliseconds: 120 + (index * 35),
+                            ),
+                            actionLabel: 'Scheduled',
+                            onActionTap: null,
+                          );
+                        }),
+                      ],
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Past attempts',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (upcoming.isEmpty)
-                      const _EmptyCard(
-                        message: 'No upcoming quizzes scheduled.',
-                      )
-                    else
-                      ...upcoming.take(8).toList().asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final quiz = entry.value;
-                        return _QuizCard(
-                          quiz: quiz,
-                          statusLabel: 'UPCOMING',
-                          statusColor: Colors.blue,
-                          animationDelay: Duration(
-                            milliseconds: 120 + (index * 30),
-                          ),
-                          onStart: null,
-                        );
-                      }),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Past Attempts',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (past.isEmpty)
-                      const _EmptyCard(message: 'No completed quizzes yet.')
-                    else
-                      ...past
-                          .take(5)
-                          .map(
-                            (quiz) => Card(
-                              child: ListTile(
-                                leading: const Icon(LucideIcons.history),
-                                title: Text(quiz.title),
-                                subtitle: Text(
-                                  '${quiz.subject} - Ended ${DateFormat('dd MMM yyyy, hh:mm a').format(quiz.endAt)}',
-                                ),
-                                trailing: const Text('View marks'),
+                      const SizedBox(height: 10),
+                      if (past.isEmpty)
+                        const _EmptyCard(message: 'No completed quizzes yet.')
+                      else
+                        ...past
+                            .take(6)
+                            .map(
+                              (quiz) => PressScale(
                                 onTap: () => Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) => ResultsScreen(
+                                      attemptId: '${quiz.id}_${student.uid}',
                                       quizId: quiz.id,
                                       quizTitle: quiz.title,
                                     ),
                                   ),
                                 ),
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.panel,
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(color: AppTheme.stroke),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        LucideIcons.history,
+                                        size: 18,
+                                        color: AppTheme.textMuted,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          quiz.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        DateFormat('dd MMM').format(quiz.endAt),
+                                        style: const TextStyle(
+                                          color: AppTheme.textMuted,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                  ],
+                    ],
+                  ),
                 ),
               );
             },
@@ -243,77 +249,179 @@ class StudentDashboard extends StatelessWidget {
   }
 }
 
-class _QuizCard extends StatelessWidget {
-  const _QuizCard({
+class _HeaderBar extends StatelessWidget {
+  const _HeaderBar({
+    required this.rightLabel,
+    required this.onStatsTap,
+    required this.onProfileTap,
+  });
+
+  final String rightLabel;
+  final VoidCallback onStatsTap;
+  final VoidCallback onProfileTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Text(
+          'Today,',
+          style: TextStyle(fontSize: 34, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          rightLabel,
+          style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800),
+        ),
+        const Spacer(),
+        _RoundIconButton(icon: LucideIcons.barChart3, onTap: onStatsTap),
+        const SizedBox(width: 8),
+        _RoundIconButton(icon: LucideIcons.user, onTap: onProfileTap),
+      ],
+    );
+  }
+}
+
+class _RoundIconButton extends StatelessWidget {
+  const _RoundIconButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: const BoxDecoration(
+          color: AppTheme.panelSoft,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: 18, color: AppTheme.textPrimary),
+      ),
+    );
+  }
+}
+
+class _QuizHabitCard extends StatelessWidget {
+  const _QuizHabitCard({
     required this.quiz,
     required this.statusLabel,
     required this.statusColor,
     required this.animationDelay,
-    required this.onStart,
+    required this.actionLabel,
+    required this.onActionTap,
   });
 
   final QuizSummary quiz;
   final String statusLabel;
   final Color statusColor;
   final Duration animationDelay;
-  final VoidCallback? onStart;
+  final String actionLabel;
+  final VoidCallback? onActionTap;
 
   @override
   Widget build(BuildContext context) {
     return FadeSlideIn(
       delay: animationDelay,
-      child: PressScale(
-        onTap: onStart,
-        child: Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: AppTheme.panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppTheme.stroke),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      statusLabel,
-                      style: TextStyle(
-                        color: statusColor,
-                        fontWeight: FontWeight.bold,
-                      ),
+                Expanded(
+                  child: Text(
+                    quiz.title,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      height: 1.2,
                     ),
-                    Text(
-                      DateFormat('dd MMM yyyy, hh:mm a').format(quiz.startAt),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  quiz.title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  '${quiz.subject} - ${quiz.batch} - ${quiz.durationMinutes} min - ${quiz.totalQuestions} questions',
-                  style: const TextStyle(color: Colors.black54),
-                ),
-                if (onStart != null) ...[
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    onPressed: onStart,
-                    icon: const Icon(LucideIcons.play),
-                    label: const Text('Start Quiz'),
+                const SizedBox(width: 10),
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: statusColor.withValues(alpha: 0.5),
+                    ),
                   ),
-                ],
+                  child: Icon(
+                    onActionTap == null ? LucideIcons.clock3 : LucideIcons.play,
+                    size: 13,
+                    color: statusColor,
+                  ),
+                ),
               ],
             ),
-          ),
+            const SizedBox(height: 6),
+            Text(
+              '${quiz.subject} • ${quiz.durationMinutes} min • ${quiz.totalQuestions} questions',
+              style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${statusLabel == 'ACTIVE' ? 'Ends' : 'Starts'} ${DateFormat('dd MMM, hh:mm a').format(statusLabel == 'ACTIVE' ? quiz.endAt : quiz.startAt)}',
+              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+            ),
+            const SizedBox(height: 12),
+            if (onActionTap != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: PressScale(
+                  onTap: onActionTap,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.coral,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      actionLabel,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: AppTheme.panelSoft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  actionLabel,
+                  style: const TextStyle(
+                    color: AppTheme.textMuted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -327,8 +435,15 @@ class _EmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(padding: const EdgeInsets.all(16), child: Text(message)),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.stroke),
+      ),
+      child: Text(message, style: const TextStyle(color: AppTheme.textMuted)),
     );
   }
 }

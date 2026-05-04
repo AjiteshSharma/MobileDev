@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,6 +15,7 @@ import '../models/quiz_models.dart';
 import '../services/attempt_service.dart';
 import '../services/auth_service.dart';
 import '../services/quiz_service.dart';
+import '../theme/app_theme.dart';
 import 'results_screen.dart';
 
 class QuizTakingScreen extends StatefulWidget {
@@ -39,6 +41,8 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
 
   final Map<String, String> _answers = <String, String>{};
   final Map<String, DateTime> _lastViolationByType = <String, DateTime>{};
+  final Map<String, List<String>> _shuffledOptionsByQuestionId =
+      <String, List<String>>{};
 
   List<QuizQuestion> _questions = const <QuizQuestion>[];
 
@@ -241,6 +245,14 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
         _questions = resolvedQuestions;
         _attemptId = attemptId;
         _isReadOnlyPreview = isReadOnlyPreview;
+        _shuffledOptionsByQuestionId
+          ..clear()
+          ..addAll(
+            _buildShuffledOptionsByQuestion(
+              questions: resolvedQuestions,
+              userSeed: attemptId ?? currentUser.uid,
+            ),
+          );
         if (isReadOnlyPreview) {
           _attemptStatus = 'preview';
         }
@@ -617,9 +629,9 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: AppTheme.panel,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (context) {
         return SizedBox(
@@ -634,7 +646,7 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                   children: [
                     Text(
                       'Question Overview',
-                      style: GoogleFonts.inter(
+                      style: GoogleFonts.plusJakartaSans(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
@@ -648,11 +660,11 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    _statusLegend(Colors.blue, 'Current'),
+                    _statusLegend(AppTheme.coral, 'Current'),
                     const SizedBox(width: 16),
-                    _statusLegend(const Color(0xFF005BBF), 'Answered'),
+                    _statusLegend(const Color(0xFF88A9FF), 'Answered'),
                     const SizedBox(width: 16),
-                    _statusLegend(const Color(0xFFE2E8F0), 'Unanswered'),
+                    _statusLegend(AppTheme.stroke, 'Unanswered'),
                   ],
                 ),
                 const SizedBox(height: 24),
@@ -678,25 +690,25 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                         child: Container(
                           decoration: BoxDecoration(
                             color: isCurrent
-                                ? const Color(0xFFEFF6FF)
+                                ? const Color(0xFF2D385F)
                                 : (isAnswered
-                                      ? const Color(0xFFDBEAFE)
-                                      : const Color(0xFFF8FAFC)),
+                                      ? const Color(0xFF242F4E)
+                                      : AppTheme.panelSoft),
                             border: Border.all(
                               color: isCurrent
-                                  ? const Color(0xFF005BBF)
-                                  : const Color(0xFFE2E8F0),
+                                  ? AppTheme.coral
+                                  : AppTheme.stroke,
                             ),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           child: Center(
                             child: Text(
                               '${index + 1}',
-                              style: GoogleFonts.inter(
+                              style: GoogleFonts.plusJakartaSans(
                                 fontWeight: FontWeight.bold,
                                 color: isCurrent
-                                    ? const Color(0xFF005BBF)
-                                    : const Color(0xFF64748B),
+                                    ? AppTheme.textPrimary
+                                    : AppTheme.textMuted,
                               ),
                             ),
                           ),
@@ -733,169 +745,102 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
 
     final question = _questions[_currentQuestionIndex];
     final selected = _answers[question.id];
+    final displayOptions =
+        _shuffledOptionsByQuestionId[question.id] ?? question.options;
     final totalQuestions = _questions.length;
     final progress = (_currentQuestionIndex + 1) / totalQuestions;
 
     return PopScope(
       canPop: false,
       child: Scaffold(
-        backgroundColor: Colors.white,
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.quizTitle,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              Row(
-                children: [
-                  const Icon(
-                    LucideIcons.clock,
-                    size: 16,
-                    color: Color(0xFF005BBF),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _formatTimer(_remainingSeconds),
-                    style: GoogleFonts.jetBrainsMono(
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF005BBF),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: OutlinedButton(
-                onPressed: _isSubmitting ? null : () => _submitQuiz(),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFE2E8F0)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(
-                        _isReadOnlyPreview ? 'Close Preview' : 'Submit Quiz',
-                      ),
-              ),
-            ),
-            const SizedBox(width: 16),
-          ],
-        ),
+        backgroundColor: AppTheme.midnight,
         body: Column(
           children: [
-            LinearProgressIndicator(
-              value: progress,
-              backgroundColor: const Color(0xFFE2E8F0),
-              color: const Color(0xFF005BBF),
-              minHeight: 4,
-            ),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              color: _isReadOnlyPreview
-                  ? const Color(0xFFE2E8F0)
-                  : _attemptStatus == 'disqualified'
-                  ? const Color(0xFFFFE2E2)
-                  : (_violationCount > 0
-                        ? const Color(0xFFFFF5E6)
-                        : const Color(0xFFF8FAFC)),
-              child: Row(
-                children: [
-                  Icon(
-                    _isReadOnlyPreview
-                        ? LucideIcons.eye
-                        : _attemptStatus == 'disqualified'
-                        ? LucideIcons.xCircle
-                        : LucideIcons.shieldAlert,
-                    size: 16,
-                    color: _isReadOnlyPreview
-                        ? const Color(0xFF334155)
-                        : _attemptStatus == 'disqualified'
-                        ? Colors.red
-                        : const Color(0xFF9A6700),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _isReadOnlyPreview
-                          ? 'Teacher preview mode. This session does not record answers, timing, or violations.'
-                          : _attemptStatus == 'disqualified'
-                          ? 'Attempt disqualified due to repeated violations.'
-                          : kIsWeb
-                          ? 'Security monitoring is available on mobile app only.'
-                          : 'Security events: $_violationCount  |  App switching, screenshot, and recording events are logged.',
-                      style: const TextStyle(fontSize: 12),
+            SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
+                child: Row(
+                  children: [
+                    Text(
+                      _formatTimer(_remainingSeconds),
+                      style: GoogleFonts.jetBrainsMono(
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.textPrimary,
+                      ),
                     ),
-                  ),
-                ],
+                    const Spacer(),
+                    _buildSecurityHearts(),
+                  ],
+                ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor: AppTheme.strokeSoft,
+                  color: AppTheme.coral,
+                  minHeight: 5,
+                ),
+              ),
+            ),
+            if (_isReadOnlyPreview ||
+                _violationCount > 0 ||
+                _attemptStatus == 'disqualified')
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _isReadOnlyPreview
+                        ? 'Preview mode active.'
+                        : _attemptStatus == 'disqualified'
+                        ? 'Attempt disqualified.'
+                        : 'Security warnings: $_violationCount',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textMuted,
+                    ),
+                  ),
+                ),
+              ),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.fromLTRB(22, 28, 22, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Question ${_currentQuestionIndex + 1} of $totalQuestions',
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF64748B),
-                          ),
+                    Center(
+                      child: Text(
+                        'Question ${_currentQuestionIndex + 1} out of $totalQuestions',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textMuted,
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '${question.points} Points',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: const Color(0xFF475569),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      question.text,
-                      style: GoogleFonts.inter(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        height: 1.4,
-                        color: const Color(0xFF1E293B),
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    ...question.options.asMap().entries.map((entry) {
-                      final optionIndex = entry.key;
+                    const SizedBox(height: 20),
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 560),
+                        child: Text(
+                          question.text,
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w800,
+                            height: 1.15,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 26),
+                    ...displayOptions.asMap().entries.map((entry) {
                       final optionText = entry.value;
-                      final optionLabel = _optionLabel(optionIndex);
                       final isSelected = selected == optionText;
                       final isAnswerSelectionLocked =
                           _quizFinished ||
@@ -904,7 +849,6 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
                               _attemptStatus == 'submitted');
 
                       return _buildOption(
-                        optionLabel: optionLabel,
                         text: optionText,
                         isSelected: isSelected,
                         onTap: isAnswerSelectionLocked
@@ -924,73 +868,36 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   }
 
   Widget _buildOption({
-    required String optionLabel,
     required String text,
     required bool isSelected,
     required VoidCallback? onTap,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: isSelected ? const Color(0xFFEFF6FF) : Colors.white,
+        color: isSelected ? const Color(0xFF656A74) : Colors.white,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           side: BorderSide(
-            color: isSelected
-                ? const Color(0xFF005BBF)
-                : const Color(0xFFE2E8F0),
-            width: isSelected ? 2 : 1,
+            color: Colors.white.withValues(alpha: isSelected ? 0.95 : 0.85),
+            width: isSelected ? 1.4 : 1,
           ),
         ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFF005BBF)
-                        : const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isSelected
-                          ? const Color(0xFF005BBF)
-                          : const Color(0xFFE2E8F0),
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      optionLabel,
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.bold,
-                        color: isSelected
-                            ? Colors.white
-                            : const Color(0xFF64748B),
-                      ),
-                    ),
-                  ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Center(
+              child: Text(
+                text,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: isSelected ? Colors.white : const Color(0xFF1B2132),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: GoogleFonts.inter(
-                      fontSize: 15,
-                      fontWeight: isSelected
-                          ? FontWeight.w600
-                          : FontWeight.w500,
-                      color: isSelected
-                          ? const Color(0xFF005BBF)
-                          : const Color(0xFF334155),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -999,53 +906,69 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
   }
 
   Widget _buildBottomNav(int totalQuestions) {
+    final canGoNext = _currentQuestionIndex < totalQuestions - 1;
+
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-      ),
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+      decoration: const BoxDecoration(color: AppTheme.midnight),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            onPressed: _currentQuestionIndex > 0
-                ? () => setState(() => _currentQuestionIndex--)
-                : null,
-            icon: const Icon(LucideIcons.chevronLeft),
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0xFFF8FAFC),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          ),
-          OutlinedButton.icon(
+          TextButton(
             onPressed: _showQuestionGrid,
-            icon: const Icon(LucideIcons.grid, size: 18),
-            label: Text('Review (${_answers.length}/$totalQuestions)'),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Color(0xFFE2E8F0)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              foregroundColor: AppTheme.textPrimary,
+            ),
+            child: Text(
+              'Review (${_answers.length}/$totalQuestions)',
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-          IconButton(
-            onPressed: _currentQuestionIndex < totalQuestions - 1
+          const Spacer(),
+          TextButton(
+            onPressed: _isSubmitting
+                ? null
+                : canGoNext
                 ? () => setState(() => _currentQuestionIndex++)
-                : null,
-            icon: const Icon(LucideIcons.chevronRight),
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0xFF005BBF),
+                : () => _submitQuiz(),
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
             ),
+            child: _isSubmitting
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(
+                    canGoNext
+                        ? 'Continue'
+                        : (_isReadOnlyPreview ? 'Close Preview' : 'Submit'),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSecurityHearts() {
+    final threshold = AttemptService.disqualificationThreshold;
+    final safeLeft = (threshold - _violationCount).clamp(0, threshold);
+
+    return Row(
+      children: List<Widget>.generate(threshold, (index) {
+        final isActive = index < safeLeft;
+        return Padding(
+          padding: EdgeInsets.only(left: index == 0 ? 0 : 4),
+          child: Icon(
+            Icons.favorite,
+            size: 12,
+            color: isActive ? Colors.white : const Color(0xFF4E556B),
+          ),
+        );
+      }),
     );
   }
 
@@ -1060,18 +983,13 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
         const SizedBox(width: 6),
         Text(
           label,
-          style: GoogleFonts.inter(
+          style: GoogleFonts.plusJakartaSans(
             fontSize: 12,
-            color: const Color(0xFF64748B),
+            color: AppTheme.textMuted,
           ),
         ),
       ],
     );
-  }
-
-  String _optionLabel(int index) {
-    final ascii = 65 + index;
-    return String.fromCharCode(ascii.clamp(65, 90));
   }
 
   String _formatTimer(int remainingSeconds) {
@@ -1089,5 +1007,52 @@ class _QuizTakingScreenState extends State<QuizTakingScreen>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Map<String, List<String>> _buildShuffledOptionsByQuestion({
+    required List<QuizQuestion> questions,
+    required String userSeed,
+  }) {
+    final normalizedSeed = userSeed.trim().isEmpty ? widget.quizId : userSeed;
+    final shuffled = <String, List<String>>{};
+
+    for (final question in questions) {
+      final optionEntries = question.options
+          .asMap()
+          .entries
+          .map((entry) => (index: entry.key, text: entry.value))
+          .toList(growable: false);
+
+      optionEntries.sort((a, b) {
+        final hashA = _stableHash(
+          '$normalizedSeed|${question.id}|${a.index}|${a.text}',
+        );
+        final hashB = _stableHash(
+          '$normalizedSeed|${question.id}|${b.index}|${b.text}',
+        );
+        if (hashA == hashB) {
+          return a.index.compareTo(b.index);
+        }
+        return hashA.compareTo(hashB);
+      });
+
+      shuffled[question.id] = optionEntries
+          .map((entry) => entry.text)
+          .toList(growable: false);
+    }
+
+    return shuffled;
+  }
+
+  int _stableHash(String value) {
+    var hash = 2166136261;
+    for (final unit in value.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 16777619) & 0x7fffffff;
+    }
+
+    // Keep an additional tiny mix so option ordering differs better across
+    // similar seeds while remaining deterministic.
+    return hash ^ (hash >> 13) ^ Random(hash).nextInt(1 << 16);
   }
 }

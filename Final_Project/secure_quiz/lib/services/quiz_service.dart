@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:csv/csv.dart';
 import 'package:excel/excel.dart';
+import 'package:http/http.dart' as http;
 
 import '../models/quiz_models.dart';
 
@@ -11,6 +13,16 @@ class QuizService {
   const QuizService();
 
   FirebaseFirestore get _db => FirebaseFirestore.instance;
+  static const String _apiKeyCollection = 'key';
+  static const String _apiKeyDocument = '2mVwBh6A9DrMSukIAL1X';
+  static const String _apiKeyField = 'gemini';
+  static const String _groqModel = String.fromEnvironment(
+    'GROQ_MODEL',
+    defaultValue: 'llama-3.1-8b-instant',
+  );
+  static const String _groqEndpoint =
+      'https://api.groq.com/openai/v1/chat/completions';
+  static String? _cachedGroqApiKey;
 
   Stream<List<QuizSummary>> streamStudentQuizzes({String? batch}) {
     final normalizedBatch = _normalizeBatch(batch);
@@ -113,36 +125,11 @@ class QuizService {
 
       final questionsRef = quizRef.collection('questions');
       await _clearCollection(questionsRef);
-
-      var totalPoints = 0;
-      var batchWriter = _db.batch();
-      var batchOps = 0;
-
-      for (var index = 0; index < parsedQuestions.length; index++) {
-        final question = parsedQuestions[index];
-        totalPoints += question.points;
-
-        final docRef = questionsRef.doc();
-        batchWriter.set(docRef, {
-          'text': question.text,
-          'options': question.options,
-          'correctOption': question.correctOption,
-          'points': question.points,
-          'order': index,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
-        batchOps += 1;
-        if (batchOps >= 450) {
-          await batchWriter.commit();
-          batchWriter = _db.batch();
-          batchOps = 0;
-        }
-      }
-
-      if (batchOps > 0) {
-        await batchWriter.commit();
-      }
+      await _writeQuestions(questionsRef, parsedQuestions);
+      final totalPoints = parsedQuestions.fold<int>(
+        0,
+        (accumulator, question) => accumulator + question.points,
+      );
 
       await quizRef.set({
         'status': 'ready',
@@ -162,6 +149,638 @@ class QuizService {
     }
 
     return quizRef.id;
+  }
+
+  Future<String> createQuizFromAI({
+    required String title,
+    required String subject,
+    required DateTime startAt,
+    required int durationMinutes,
+    required String batch,
+    required String prompt,
+    required String difficulty,
+    required int questionCount,
+    required int maxMarks,
+  }) async {
+    final teacher = FirebaseAuth.instance.currentUser;
+    if (teacher == null) {
+      throw const FormatException('Session expired. Please sign in again.');
+    }
+    final groqApiKey = await _resolveGroqApiKey();
+
+    final input = _normalizeAiInput(
+      title: title,
+      subject: subject,
+      startAt: startAt,
+      durationMinutes: durationMinutes,
+      batch: batch,
+      prompt: prompt,
+      difficulty: difficulty,
+      questionCount: questionCount,
+      maxMarks: maxMarks,
+    );
+
+    final quizRef = _db.collection('quizzes').doc();
+    await quizRef.set({
+      'title': input.title,
+      'subject': input.subject,
+      'startAt': Timestamp.fromDate(input.startAt),
+      'durationMinutes': input.durationMinutes,
+      'batch': input.batch,
+      'batchLabel': input.batchLabel,
+      'createdBy': teacher.uid,
+      'createdByEmail': teacher.email ?? '',
+      'createdAt': FieldValue.serverTimestamp(),
+      'status': 'processing',
+      'totalQuestions': 0,
+      'totalPoints': 0,
+      'source': 'ai',
+      'aiPrompt': input.prompt,
+      'aiTopics': input.topics,
+      'aiDifficulty': input.difficulty,
+      'aiRequestedQuestionCount': input.questionCount,
+      'aiRequestedMaxMarks': input.maxMarks,
+    }, SetOptions(merge: true));
+
+    try {
+      final generated = await _generateQuestionsWithGroq(
+        input,
+        apiKey: groqApiKey,
+      );
+      final parsedQuestions = _normalizeGeneratedQuestions(
+        rawQuestions: generated.questions,
+        expectedCount: input.questionCount,
+        maxMarks: input.maxMarks,
+      );
+
+      if (parsedQuestions.length != input.questionCount) {
+        throw const FormatException(
+          'AI generated invalid number of questions.',
+        );
+      }
+
+      final questionsRef = quizRef.collection('questions');
+      await _clearCollection(questionsRef);
+      await _writeQuestions(questionsRef, parsedQuestions);
+
+      final totalPoints = parsedQuestions.fold<int>(
+        0,
+        (accumulator, question) => accumulator + question.points,
+      );
+
+      await quizRef.set({
+        'title': input.title,
+        'status': 'ready',
+        'totalQuestions': parsedQuestions.length,
+        'totalPoints': totalPoints,
+        'parsedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'aiGeneratedAt': FieldValue.serverTimestamp(),
+        'aiModel': generated.model,
+      }, SetOptions(merge: true));
+
+      return quizRef.id;
+    } catch (error) {
+      await quizRef.set({
+        'status': 'error',
+        'errorCode': 'ai-generation-failed',
+        'errorMessage': error.toString(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      rethrow;
+    }
+  }
+
+  _AiInput _normalizeAiInput({
+    required String title,
+    required String subject,
+    required DateTime startAt,
+    required int durationMinutes,
+    required String batch,
+    required String prompt,
+    required String difficulty,
+    required int questionCount,
+    required int maxMarks,
+  }) {
+    final normalizedTitle = title.trim();
+    final normalizedSubject = subject.trim();
+    final batchLabel = batch.trim();
+    final normalizedBatch = _normalizeBatch(batchLabel);
+    final normalizedPrompt = prompt.trim();
+    final normalizedDifficulty = _normalizeDifficulty(difficulty);
+    final topics = _extractTopics(normalizedPrompt);
+
+    if (normalizedTitle.isEmpty) {
+      throw const FormatException('Quiz title is required.');
+    }
+    if (normalizedSubject.isEmpty) {
+      throw const FormatException('Subject is required.');
+    }
+    if (normalizedBatch.isEmpty) {
+      throw const FormatException('Batch is required.');
+    }
+    if (normalizedPrompt.isEmpty) {
+      throw const FormatException('Prompt is required.');
+    }
+    if (topics.isEmpty) {
+      throw const FormatException(
+        'Provide at least one topic (comma-separated is supported).',
+      );
+    }
+    if (questionCount < 2 || questionCount > 50) {
+      throw const FormatException('Question count must be between 2 and 50.');
+    }
+    if (maxMarks < 2 || maxMarks > 500) {
+      throw const FormatException('Max marks must be between 2 and 500.');
+    }
+    if (maxMarks < questionCount) {
+      throw const FormatException(
+        'Max marks must be at least the question count.',
+      );
+    }
+    if (durationMinutes < 1 || durationMinutes > 600) {
+      throw const FormatException(
+        'Duration must be between 1 and 600 minutes.',
+      );
+    }
+
+    return _AiInput(
+      title: normalizedTitle,
+      subject: normalizedSubject,
+      startAt: startAt,
+      durationMinutes: durationMinutes,
+      batch: normalizedBatch,
+      batchLabel: batchLabel,
+      prompt: normalizedPrompt,
+      topics: topics,
+      difficulty: normalizedDifficulty,
+      questionCount: questionCount,
+      maxMarks: maxMarks,
+    );
+  }
+
+  Future<_AiGeneratedQuiz> _generateQuestionsWithGroq(
+    _AiInput input, {
+    required String apiKey,
+  }) async {
+    final endpoint = Uri.parse(_groqEndpoint);
+
+    final response = await http.post(
+      endpoint,
+      headers: {
+        'Authorization': 'Bearer $apiKey',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'model': _groqModel,
+        'messages': [
+          {
+            'role': 'system',
+            'content':
+                'You are an exam-setter assistant. Return valid JSON only.',
+          },
+          {'role': 'user', 'content': _buildAiPrompt(input)},
+        ],
+        'temperature': 0.3,
+      }),
+    );
+
+    Map<String, dynamic> jsonBody = <String, dynamic>{};
+    if (response.body.isNotEmpty) {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        jsonBody = decoded;
+      } else if (decoded is Map) {
+        jsonBody = decoded.cast<String, dynamic>();
+      }
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final message = (jsonBody['error']?['message']?.toString() ?? '').trim();
+      throw FormatException(
+        message.isNotEmpty
+            ? 'Groq generation failed: $message'
+            : 'Groq generation failed with status ${response.statusCode}.',
+      );
+    }
+
+    final choices = jsonBody['choices'];
+    if (choices is! List || choices.isEmpty) {
+      throw const FormatException('Groq returned no choices.');
+    }
+
+    final firstChoice = choices.first;
+    if (firstChoice is! Map) {
+      throw const FormatException('Groq response format is invalid.');
+    }
+
+    final message = firstChoice['message'];
+    if (message is! Map) {
+      throw const FormatException('Groq message is missing.');
+    }
+
+    final text = (message['content'] ?? '').toString().trim();
+
+    if (text.isEmpty) {
+      throw const FormatException('Groq returned empty text response.');
+    }
+
+    final decodedJson = _decodeJsonValueFromText(text);
+    final extracted = _extractQuizPayload(decodedJson);
+
+    return _AiGeneratedQuiz(
+      title: extracted.title,
+      questions: extracted.questions,
+      model: (jsonBody['model']?.toString() ?? _groqModel).trim(),
+    );
+  }
+
+  dynamic _decodeJsonValueFromText(String text) {
+    final direct = _tryDecodeJson(text);
+    if (direct != null) {
+      return direct;
+    }
+
+    final fenceMatch = RegExp(
+      r'```(?:json)?\s*([\s\S]*?)\s*```',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (fenceMatch != null) {
+      final insideFence = fenceMatch.group(1) ?? '';
+      final fencedMap = _tryDecodeJson(insideFence);
+      if (fencedMap != null) {
+        return fencedMap;
+      }
+    }
+
+    final firstBrace = text.indexOf('{');
+    final lastBrace = text.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      final sliced = text.substring(firstBrace, lastBrace + 1);
+      final slicedMap = _tryDecodeJson(sliced);
+      if (slicedMap != null) {
+        return slicedMap;
+      }
+    }
+
+    final firstBracket = text.indexOf('[');
+    final lastBracket = text.lastIndexOf(']');
+    if (firstBracket >= 0 && lastBracket > firstBracket) {
+      final sliced = text.substring(firstBracket, lastBracket + 1);
+      final slicedList = _tryDecodeJson(sliced);
+      if (slicedList != null) {
+        return slicedList;
+      }
+    }
+
+    throw const FormatException(
+      'AI output is not valid JSON. Please retry with clearer topics.',
+    );
+  }
+
+  dynamic _tryDecodeJson(String raw) {
+    final candidate = raw.trim();
+    if (candidate.isEmpty) {
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(candidate);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map) {
+        return decoded.cast<String, dynamic>();
+      }
+      if (decoded is List) {
+        return decoded;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _ExtractedQuizPayload _extractQuizPayload(dynamic decodedJson) {
+    if (decodedJson is List) {
+      return _ExtractedQuizPayload(title: '', questions: decodedJson);
+    }
+
+    if (decodedJson is Map) {
+      final normalizedMap = decodedJson is Map<String, dynamic>
+          ? decodedJson
+          : decodedJson.cast<String, dynamic>();
+
+      final title =
+          (normalizedMap['title'] ??
+                  normalizedMap['quizTitle'] ??
+                  normalizedMap['quiz_title'] ??
+                  normalizedMap['topic'] ??
+                  '')
+              .toString()
+              .trim();
+
+      final questionList = _extractQuestionListFromMap(normalizedMap);
+      if (questionList.isNotEmpty) {
+        return _ExtractedQuizPayload(title: title, questions: questionList);
+      }
+
+      if (_looksLikeQuestionMap(normalizedMap)) {
+        return _ExtractedQuizPayload(title: title, questions: [normalizedMap]);
+      }
+    }
+
+    return const _ExtractedQuizPayload(title: '', questions: <dynamic>[]);
+  }
+
+  List<dynamic> _extractQuestionListFromMap(Map<String, dynamic> map) {
+    const listKeys = <String>[
+      'questions',
+      'mcqs',
+      'quiz',
+      'items',
+      'data',
+      'questionList',
+      'question_list',
+    ];
+
+    for (final key in listKeys) {
+      final value = map[key];
+      if (value is List && value.isNotEmpty) {
+        return List<dynamic>.from(value);
+      }
+    }
+
+    for (final value in map.values) {
+      if (value is List && value.isNotEmpty && value.first is Map) {
+        return List<dynamic>.from(value);
+      }
+      if (value is Map) {
+        final nested = value is Map<String, dynamic>
+            ? value
+            : value.cast<String, dynamic>();
+        final nestedList = _extractQuestionListFromMap(nested);
+        if (nestedList.isNotEmpty) {
+          return nestedList;
+        }
+      }
+    }
+
+    return const <dynamic>[];
+  }
+
+  bool _looksLikeQuestionMap(Map<String, dynamic> map) {
+    final hasQuestionText = (map['text'] ?? map['question'] ?? '')
+        .toString()
+        .trim()
+        .isNotEmpty;
+    final hasOptions =
+        map['options'] is List ||
+        map['options'] is Map ||
+        map['choices'] is List ||
+        map['choices'] is Map;
+    return hasQuestionText && hasOptions;
+  }
+
+  Future<String> _resolveGroqApiKey() async {
+    final cached = _cachedGroqApiKey;
+    if (cached != null && cached.trim().isNotEmpty) {
+      return cached;
+    }
+
+    try {
+      final fixedDoc = await _db
+          .collection(_apiKeyCollection)
+          .doc(_apiKeyDocument)
+          .get();
+      final fromFixedDoc = _extractKeyFromDocument(fixedDoc.data());
+      if (fromFixedDoc.isNotEmpty) {
+        _cachedGroqApiKey = fromFixedDoc;
+        return fromFixedDoc;
+      }
+
+      final fallbackSnapshot = await _db
+          .collection(_apiKeyCollection)
+          .limit(1)
+          .get();
+      if (fallbackSnapshot.docs.isNotEmpty) {
+        final fromFallback = _extractKeyFromDocument(
+          fallbackSnapshot.docs.first.data(),
+        );
+        if (fromFallback.isNotEmpty) {
+          _cachedGroqApiKey = fromFallback;
+          return fromFallback;
+        }
+      }
+    } on FirebaseException catch (error) {
+      throw FormatException(
+        'Failed to read Groq key from Firestore (${error.code}).',
+      );
+    }
+
+    throw const FormatException(
+      'Groq key not found in Firestore. Expected key/2mVwBh6A9DrMSukIAL1X field "gemini".',
+    );
+  }
+
+  String _extractKeyFromDocument(Map<String, dynamic>? data) {
+    if (data == null) {
+      return '';
+    }
+    final value = (data[_apiKeyField] ?? '').toString().trim();
+    return value;
+  }
+
+  List<_ParsedQuestion> _normalizeGeneratedQuestions({
+    required List<dynamic> rawQuestions,
+    required int expectedCount,
+    required int maxMarks,
+  }) {
+    if (rawQuestions.isEmpty) {
+      throw const FormatException('AI did not generate any questions.');
+    }
+
+    final cleaned = <_ParsedQuestion>[];
+    for (final item in rawQuestions) {
+      if (item is! Map) {
+        continue;
+      }
+
+      final text =
+          (item['text'] ?? item['question'] ?? item['questionText'] ?? '')
+              .toString()
+              .trim();
+      if (text.isEmpty) {
+        continue;
+      }
+
+      final optionsRaw = item['options'] ?? item['choices'] ?? item['answers'];
+      final options = <String>[];
+      if (optionsRaw is List) {
+        for (final option in optionsRaw.take(4)) {
+          final value = option.toString().trim();
+          if (value.isNotEmpty) {
+            options.add(value);
+          }
+        }
+      } else if (optionsRaw is Map) {
+        const preferredOrder = ['A', 'B', 'C', 'D', 'a', 'b', 'c', 'd'];
+        for (final key in preferredOrder) {
+          final raw = optionsRaw[key];
+          if (raw != null) {
+            final value = raw.toString().trim();
+            if (value.isNotEmpty) {
+              options.add(value);
+            }
+          }
+        }
+        if (options.isEmpty) {
+          for (final raw in optionsRaw.values) {
+            final value = raw.toString().trim();
+            if (value.isNotEmpty) {
+              options.add(value);
+            }
+          }
+        }
+      }
+
+      while (options.length < 4) {
+        options.add('Option ${options.length + 1}');
+      }
+
+      final rawIndex = int.tryParse(
+        (item['correctOptionIndex'] ??
+                item['answerIndex'] ??
+                item['correct_index'] ??
+                '')
+            .toString(),
+      );
+      var validIndex =
+          rawIndex != null && rawIndex >= 0 && rawIndex < options.length
+          ? rawIndex
+          : -1;
+
+      if (validIndex < 0) {
+        final correctAnswerText =
+            (item['correct_answer'] ??
+                    item['correctAnswer'] ??
+                    item['answer'] ??
+                    item['correctOption'] ??
+                    '')
+                .toString()
+                .trim();
+        if (correctAnswerText.isNotEmpty) {
+          if (correctAnswerText.length == 1 &&
+              RegExp(r'^[A-Da-d]$').hasMatch(correctAnswerText)) {
+            validIndex = correctAnswerText.toUpperCase().codeUnitAt(0) - 65;
+          } else {
+            final byText = options.indexWhere(
+              (option) =>
+                  option.toLowerCase() == correctAnswerText.toLowerCase(),
+            );
+            validIndex = byText;
+          }
+        }
+      }
+      if (validIndex < 0 || validIndex >= options.length) {
+        validIndex = 0;
+      }
+      final correctOption = options[validIndex];
+      final points =
+          int.tryParse(
+            (item['points'] ?? item['marks'] ?? item['mark'] ?? '').toString(),
+          ) ??
+          1;
+
+      cleaned.add(
+        _ParsedQuestion(
+          text: text,
+          options: options,
+          correctOption: correctOption,
+          points: points > 0 ? points : 1,
+        ),
+      );
+    }
+
+    if (cleaned.length < expectedCount) {
+      throw FormatException(
+        'AI generated ${cleaned.length} valid questions, expected $expectedCount.',
+      );
+    }
+
+    final trimmed = cleaned.take(expectedCount).toList(growable: false);
+    return _rebalancePoints(trimmed, maxMarks);
+  }
+
+  List<_ParsedQuestion> _rebalancePoints(
+    List<_ParsedQuestion> questions,
+    int maxMarks,
+  ) {
+    final currentTotal = questions.fold<int>(
+      0,
+      (accumulator, q) => accumulator + q.points,
+    );
+    if (currentTotal == maxMarks) {
+      return questions;
+    }
+
+    final base = maxMarks ~/ questions.length;
+    final remainder = maxMarks % questions.length;
+    return List<_ParsedQuestion>.generate(questions.length, (index) {
+      final question = questions[index];
+      final points = base + (index < remainder ? 1 : 0);
+      return _ParsedQuestion(
+        text: question.text,
+        options: question.options,
+        correctOption: question.correctOption,
+        points: points,
+      );
+    }, growable: false);
+  }
+
+  String _buildAiPrompt(_AiInput input) {
+    final topicLines = input.topics
+        .asMap()
+        .entries
+        .map((entry) => '${entry.key + 1}) ${entry.value}')
+        .join('\n');
+
+    return [
+      'Generate a multiple-choice quiz.',
+      'Subject: ${input.subject}',
+      'Difficulty: ${input.difficulty}',
+      'Focus topics (from teacher input):',
+      topicLines,
+      'Number of questions: ${input.questionCount}',
+      'Total maximum marks: ${input.maxMarks}',
+      'Instructions:',
+      '1) Keep questions concise and clear.',
+      '2) Each question must have exactly 4 options.',
+      '3) Provide one correct option index from 0 to 3.',
+      '4) Use integer points per question.',
+      '5) Avoid duplicate questions.',
+      '6) Return ONLY valid JSON.',
+      '7) Required JSON format:',
+      '{"title":"...","questions":[{"text":"...","options":["A","B","C","D"],"correctOptionIndex":0,"points":1}]}',
+    ].join('\n');
+  }
+
+  List<String> _extractTopics(String prompt) {
+    return prompt
+        .split(RegExp(r'[,\n]+'))
+        .map((topic) => topic.trim())
+        .where((topic) => topic.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  String _normalizeDifficulty(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'easy' ||
+        normalized == 'medium' ||
+        normalized == 'hard') {
+      return normalized;
+    }
+    return 'medium';
   }
 
   List<_ParsedQuestion> _parseQuestionsFromFile({
@@ -427,6 +1046,38 @@ class QuizService {
       }
     }
   }
+
+  Future<void> _writeQuestions(
+    CollectionReference<Map<String, dynamic>> questionsRef,
+    List<_ParsedQuestion> questions,
+  ) async {
+    var batchWriter = _db.batch();
+    var batchOps = 0;
+
+    for (var index = 0; index < questions.length; index++) {
+      final question = questions[index];
+      final docRef = questionsRef.doc();
+      batchWriter.set(docRef, {
+        'text': question.text,
+        'options': question.options,
+        'correctOption': question.correctOption,
+        'points': question.points,
+        'order': index,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      batchOps += 1;
+      if (batchOps >= 450) {
+        await batchWriter.commit();
+        batchWriter = _db.batch();
+        batchOps = 0;
+      }
+    }
+
+    if (batchOps > 0) {
+      await batchWriter.commit();
+    }
+  }
 }
 
 class _ParsedQuestion {
@@ -441,4 +1092,51 @@ class _ParsedQuestion {
   final List<String> options;
   final String correctOption;
   final int points;
+}
+
+class _AiInput {
+  const _AiInput({
+    required this.title,
+    required this.subject,
+    required this.startAt,
+    required this.durationMinutes,
+    required this.batch,
+    required this.batchLabel,
+    required this.prompt,
+    required this.topics,
+    required this.difficulty,
+    required this.questionCount,
+    required this.maxMarks,
+  });
+
+  final String title;
+  final String subject;
+  final DateTime startAt;
+  final int durationMinutes;
+  final String batch;
+  final String batchLabel;
+  final String prompt;
+  final List<String> topics;
+  final String difficulty;
+  final int questionCount;
+  final int maxMarks;
+}
+
+class _AiGeneratedQuiz {
+  const _AiGeneratedQuiz({
+    required this.title,
+    required this.questions,
+    required this.model,
+  });
+
+  final String title;
+  final List<dynamic> questions;
+  final String model;
+}
+
+class _ExtractedQuizPayload {
+  const _ExtractedQuizPayload({required this.title, required this.questions});
+
+  final String title;
+  final List<dynamic> questions;
 }

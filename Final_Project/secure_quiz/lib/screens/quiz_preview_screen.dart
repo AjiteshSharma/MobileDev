@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import '../theme/app_theme.dart';
+
 class QuizPreviewScreen extends StatelessWidget {
   const QuizPreviewScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: AppTheme.midnight,
       body: CustomScrollView(
         slivers: [
           _buildSliverAppBar(context),
@@ -62,7 +64,7 @@ class QuizPreviewScreen extends StatelessWidget {
     return SliverAppBar(
       expandedHeight: 200,
       pinned: true,
-      backgroundColor: const Color(0xFF005BBF),
+      backgroundColor: AppTheme.midnight,
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           fit: StackFit.expand,
@@ -108,7 +110,7 @@ class QuizPreviewScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
+                color: AppTheme.panelSoft,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
@@ -116,7 +118,7 @@ class QuizPreviewScreen extends StatelessWidget {
                 style: GoogleFonts.inter(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF005BBF),
+                  color: AppTheme.coral,
                   letterSpacing: 1,
                 ),
               ),
@@ -125,7 +127,7 @@ class QuizPreviewScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
+                color: AppTheme.panel,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
@@ -133,7 +135,7 @@ class QuizPreviewScreen extends StatelessWidget {
                 style: GoogleFonts.inter(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF475569),
+                  color: AppTheme.textMuted,
                   letterSpacing: 1,
                 ),
               ),
@@ -146,7 +148,7 @@ class QuizPreviewScreen extends StatelessWidget {
           style: GoogleFonts.inter(
             fontSize: 24,
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF1E293B),
+            color: AppTheme.textPrimary,
             height: 1.2,
           ),
         ),
@@ -162,10 +164,7 @@ class QuizPreviewScreen extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               'By Prof. Robert Jenkins',
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                color: const Color(0xFF64748B),
-              ),
+              style: GoogleFonts.inter(fontSize: 14, color: AppTheme.textMuted),
             ),
           ],
         ),
@@ -190,20 +189,20 @@ class QuizPreviewScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.panel,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          border: Border.all(color: AppTheme.stroke),
         ),
         child: Column(
           children: [
-            Icon(icon, size: 20, color: const Color(0xFF005BBF)),
+            Icon(icon, size: 20, color: AppTheme.coral),
             const SizedBox(height: 8),
             Text(
               label,
               style: GoogleFonts.inter(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF1E293B),
+                color: AppTheme.textPrimary,
               ),
             ),
           ],
@@ -218,7 +217,7 @@ class QuizPreviewScreen extends StatelessWidget {
       style: GoogleFonts.inter(
         fontSize: 18,
         fontWeight: FontWeight.bold,
-        color: const Color(0xFF1E293B),
+        color: AppTheme.textPrimary,
       ),
     );
   }
@@ -234,7 +233,7 @@ class QuizPreviewScreen extends StatelessWidget {
             width: 6,
             height: 6,
             decoration: const BoxDecoration(
-              color: Color(0xFF005BBF),
+              color: AppTheme.coral,
               shape: BoxShape.circle,
             ),
           ),
@@ -244,7 +243,7 @@ class QuizPreviewScreen extends StatelessWidget {
               text,
               style: GoogleFonts.inter(
                 fontSize: 14,
-                color: const Color(0xFF475569),
+                color: AppTheme.textMuted,
                 height: 1.5,
               ),
             ),
@@ -258,19 +257,17 @@ class QuizPreviewScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: const Color(0xFFE2E8F0))),
+        color: AppTheme.midnight,
+        border: Border(top: BorderSide(color: AppTheme.stroke)),
       ),
       child: ElevatedButton(
         onPressed: () {
           Navigator.pushNamed(context, '/take-quiz');
         },
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF005BBF),
-          foregroundColor: Colors.white,
+          minimumSize: const Size(double.infinity, 58),
           padding: const EdgeInsets.symmetric(vertical: 16),
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         child: Text(
           'Start Assessment Now',

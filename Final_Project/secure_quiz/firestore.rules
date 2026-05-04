@@ -75,8 +75,19 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /key/{keyId} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
     match /quizzes/{quizId} {
-      allow read: if isTeacher() || studentCanAccessQuiz(quizId);
+      allow read: if isTeacher()
+        || (
+          isStudent()
+          && userBatch() != ''
+          && resource.data.batch is string
+          && resource.data.batch == userBatch()
+        );
 
       allow create: if isTeacher()
         && request.resource.data.createdBy == request.auth.uid;
@@ -99,18 +110,14 @@ service cloud.firestore {
         && studentCanAccessQuiz(request.resource.data.quizId);
 
       allow read: if signedIn() && (
-        (resource.data.studentId == request.auth.uid
-          && resource.data.quizId is string
-          && studentCanAccessQuiz(resource.data.quizId))
+        (resource.data.studentId == request.auth.uid)
         || (isTeacher()
           && resource.data.quizId is string
           && quizOwner(resource.data.quizId) == request.auth.uid)
       );
 
       allow update: if signedIn() && (
-        (resource.data.studentId == request.auth.uid
-          && resource.data.quizId is string
-          && studentCanAccessQuiz(resource.data.quizId))
+        (resource.data.studentId == request.auth.uid)
         || (isTeacher()
           && resource.data.quizId is string
           && quizOwner(resource.data.quizId) == request.auth.uid)

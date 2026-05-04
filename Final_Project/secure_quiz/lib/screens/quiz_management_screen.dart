@@ -5,6 +5,8 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../models/quiz_models.dart';
 import '../services/quiz_service.dart';
+import '../theme/app_theme.dart';
+import '../widgets/press_scale.dart';
 import 'teacher_quiz_insights_screen.dart';
 
 enum _QuizFilterTab { active, upcoming, completed, all }
@@ -28,15 +30,11 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FF),
-      appBar: AppBar(
-        title: const Text('Assessments'),
-        actions: [
-          IconButton(
-            onPressed: () => Navigator.pushNamed(context, '/create-quiz'),
-            icon: const Icon(LucideIcons.plus),
-          ),
-        ],
+      backgroundColor: AppTheme.midnight,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.pushNamed(context, '/create-quiz'),
+        child: const Icon(LucideIcons.plus, color: Colors.white),
       ),
       body: StreamBuilder<List<QuizSummary>>(
         stream: _quizService.streamTeacherQuizzes(teacher.uid),
@@ -65,98 +63,95 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
             tab: _selectedTab,
           );
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Management',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          '${filteredQuizzes.length} shown of ${allQuizzes.length} assessments',
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () =>
-                          Navigator.pushNamed(context, '/create-quiz'),
-                      icon: const Icon(
-                        LucideIcons.plus,
-                        size: 18,
-                        color: Colors.white,
-                      ),
-                      label: const Text(
-                        'New',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 94),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      _buildTab('Active', _QuizFilterTab.active),
-                      _buildTab('Upcoming', _QuizFilterTab.upcoming),
-                      _buildTab('Completed', _QuizFilterTab.completed),
-                      _buildTab('All', _QuizFilterTab.all),
+                      PressScale(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: const BoxDecoration(
+                            color: AppTheme.panelSoft,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            LucideIcons.arrowLeft,
+                            size: 18,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Statistics',
+                        style: TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.panelSoft,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          LucideIcons.user,
+                          size: 18,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 24),
-                if (allQuizzes.isEmpty)
-                  const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(18),
-                      child: Text(
-                        'No quizzes found yet. Create your first quiz to manage it here.',
+                  const SizedBox(height: 14),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildTab('Active', _QuizFilterTab.active),
+                        _buildTab('Upcoming', _QuizFilterTab.upcoming),
+                        _buildTab('Completed', _QuizFilterTab.completed),
+                        _buildTab('All', _QuizFilterTab.all),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (allQuizzes.isEmpty)
+                    const _EmptyCard(
+                      message:
+                          'No quizzes found yet. Create your first quiz to manage it here.',
+                    )
+                  else if (filteredQuizzes.isEmpty)
+                    _EmptyCard(
+                      message: 'No quizzes in ${_tabLabel(_selectedTab)}.',
+                    )
+                  else
+                    ...filteredQuizzes.map(
+                      (quiz) => _ManagementQuizCard(
+                        quiz: quiz,
+                        status: _statusForQuiz(quiz, now),
+                        schedule: _scheduleLabel(quiz, now),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  TeacherQuizInsightsScreen(quiz: quiz),
+                            ),
+                          );
+                        },
                       ),
                     ),
-                  )
-                else if (filteredQuizzes.isEmpty)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Text('No quizzes in ${_tabLabel(_selectedTab)}.'),
-                    ),
-                  )
-                else
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: filteredQuizzes.length,
-                    itemBuilder: (context, index) {
-                      final quiz = filteredQuizzes[index];
-                      return _buildQuizListItem(
-                        context: context,
-                        quiz: quiz,
-                        now: now,
-                      );
-                    },
-                  ),
-              ],
+                ],
+              ),
             ),
           );
         },
@@ -166,175 +161,24 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
 
   Widget _buildTab(String label, _QuizFilterTab tab) {
     final isSelected = _selectedTab == tab;
-    return GestureDetector(
+    return PressScale(
       onTap: () => setState(() => _selectedTab = tab),
       child: Container(
-        margin: const EdgeInsets.only(right: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF005BBF) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          color: isSelected ? AppTheme.coral : AppTheme.panelSoft,
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected ? Colors.transparent : const Color(0xFFC1C6D6),
+            color: isSelected ? Colors.transparent : AppTheme.stroke,
           ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Colors.blue.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF414754),
-            fontWeight: FontWeight.bold,
+            color: isSelected ? Colors.white : AppTheme.textPrimary,
+            fontWeight: FontWeight.w700,
             fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuizListItem({
-    required BuildContext context,
-    required QuizSummary quiz,
-    required DateTime now,
-  }) {
-    final status = _statusForQuiz(quiz, now);
-    final statusColor = _statusColor(status);
-    final schedule = _scheduleLabel(quiz, now);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: InkWell(
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => TeacherQuizInsightsScreen(quiz: quiz),
-            ),
-          );
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.2),
-                      ),
-                    ),
-                    child: Text(
-                      status,
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                  ),
-                  const Icon(
-                    LucideIcons.moreVertical,
-                    size: 18,
-                    color: Colors.grey,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                quiz.title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Text(
-                '${quiz.subject} - ${quiz.batch}',
-                style: const TextStyle(color: Colors.grey, fontSize: 13),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        const Icon(
-                          LucideIcons.calendar,
-                          size: 14,
-                          color: Colors.blue,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            schedule,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        const Icon(
-                          LucideIcons.helpCircle,
-                          size: 14,
-                          color: Colors.blue,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${quiz.totalQuestions} Questions',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Total Points: ${quiz.totalPoints}',
-                    style: const TextStyle(
-                      color: Color(0xFF005BBF),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const Icon(
-                    LucideIcons.arrowRight,
-                    size: 16,
-                    color: Color(0xFF005BBF),
-                  ),
-                ],
-              ),
-            ],
           ),
         ),
       ),
@@ -374,21 +218,6 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
     return 'COMPLETED';
   }
 
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'ACTIVE':
-        return Colors.green;
-      case 'UPCOMING':
-        return Colors.blue;
-      case 'PROCESSING':
-        return Colors.orange;
-      case 'ERROR':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
   String _scheduleLabel(QuizSummary quiz, DateTime now) {
     final formatter = DateFormat('dd MMM yyyy, hh:mm a');
 
@@ -418,6 +247,113 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
       case _QuizFilterTab.all:
         return 'All';
     }
+  }
+}
+
+class _ManagementQuizCard extends StatelessWidget {
+  const _ManagementQuizCard({
+    required this.quiz,
+    required this.status,
+    required this.schedule,
+    required this.onTap,
+  });
+
+  final QuizSummary quiz;
+  final String status;
+  final String schedule;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = switch (status) {
+      'ACTIVE' => Colors.green,
+      'UPCOMING' => const Color(0xFF8AA3E6),
+      'PROCESSING' => const Color(0xFFF2C062),
+      'ERROR' => Colors.red,
+      _ => AppTheme.textMuted,
+    };
+
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: AppTheme.panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppTheme.stroke),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    status,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                const Icon(
+                  LucideIcons.chevronRight,
+                  size: 16,
+                  color: AppTheme.textMuted,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              quiz.title,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              '${quiz.subject} • ${quiz.batch} • ${quiz.totalQuestions} questions',
+              style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              schedule,
+              style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.stroke),
+      ),
+      child: Text(message, style: const TextStyle(color: AppTheme.textMuted)),
+    );
   }
 }
 

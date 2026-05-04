@@ -6,6 +6,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../models/quiz_models.dart';
 import '../services/quiz_service.dart';
+import '../theme/app_theme.dart';
 import '../utils/csv_exporter.dart';
 import 'quiz_taking_screen.dart';
 
@@ -42,6 +43,42 @@ class _TeacherQuizInsightsScreenState extends State<TeacherQuizInsightsScreen> {
         .collection('attempts')
         .where('quizId', isEqualTo: widget.quiz.id)
         .get();
+
+    final violationEntries = await Future.wait(
+      attemptsSnapshot.docs.map((attemptDoc) async {
+        try {
+          final violationSnapshot = await attemptDoc.reference
+              .collection('violations')
+              .orderBy('createdAt')
+              .get();
+
+          final events = violationSnapshot.docs
+              .map((violationDoc) {
+                final violationData = violationDoc.data();
+                return _ViolationEvent(
+                  violationNumber: (violationData['violationNumber'] as num?)
+                      ?.toInt(),
+                  type: (violationData['type'] as String?)?.trim() ?? '',
+                  details: (violationData['details'] as String?)?.trim() ?? '',
+                  createdAt: _toDateTime(violationData['createdAt']),
+                );
+              })
+              .toList(growable: false);
+
+          return MapEntry(attemptDoc.id, events);
+        } catch (_) {
+          return const MapEntry<String, List<_ViolationEvent>>(
+            '',
+            <_ViolationEvent>[],
+          );
+        }
+      }),
+    );
+
+    final violationByAttempt = <String, List<_ViolationEvent>>{
+      for (final entry in violationEntries)
+        if (entry.key.isNotEmpty) entry.key: entry.value,
+    };
 
     final uniqueStudentIds = attemptsSnapshot.docs
         .map((doc) => (doc.data()['studentId'] as String?)?.trim() ?? '')
@@ -128,6 +165,8 @@ class _TeacherQuizInsightsScreenState extends State<TeacherQuizInsightsScreen> {
           isSubmitted: isSubmitted,
           answeredCount: answeredCount,
           correctCount: correctCount,
+          violationEvents:
+              violationByAttempt[doc.id] ?? const <_ViolationEvent>[],
         ),
       );
     }
@@ -257,6 +296,7 @@ class _TeacherQuizInsightsScreenState extends State<TeacherQuizInsightsScreen> {
         'Answered',
         'Correct',
         'Violations',
+        'Violation Timeline',
         'Auto Submitted',
         'Status',
         'Submitted At',
@@ -276,6 +316,7 @@ class _TeacherQuizInsightsScreenState extends State<TeacherQuizInsightsScreen> {
         attempt.answeredCount,
         attempt.correctCount,
         attempt.violationCount,
+        attempt.violationTimelineCsv,
         attempt.autoSubmitted ? 'Yes' : 'No',
         attempt.status.toUpperCase(),
         _formatDate(attempt.submittedAt),
@@ -331,16 +372,7 @@ class _TeacherQuizInsightsScreenState extends State<TeacherQuizInsightsScreen> {
         : (widget.quiz.isActiveAt(now) ? 'Active' : 'Upcoming');
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FF),
-      appBar: AppBar(
-        title: const Text('Quiz Insights'),
-        actions: [
-          IconButton(
-            onPressed: _refresh,
-            icon: const Icon(LucideIcons.refreshCw),
-          ),
-        ],
-      ),
+      backgroundColor: AppTheme.midnight,
       body: FutureBuilder<_TeacherQuizInsightsData>(
         future: _insightsFuture,
         builder: (context, snapshot) {
@@ -364,283 +396,278 @@ class _TeacherQuizInsightsScreenState extends State<TeacherQuizInsightsScreen> {
           if (data == null) {
             return const Center(child: Text('No insights available.'));
           }
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 5,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEFF6FF),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Text(
-                                statusLabel.toUpperCase(),
-                                style: const TextStyle(
-                                  color: Color(0xFF005BBF),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: _openInteractivePreview,
-                              icon: const Icon(LucideIcons.eye, size: 18),
-                              label: const Text('Preview Quiz'),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _exportCsv(data),
-                              icon: const Icon(
-                                LucideIcons.download,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                              label: const Text(
-                                'Export CSV',
-                                style: TextStyle(color: Colors.white),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF005BBF),
-                              ),
-                            ),
-                          ],
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.panelSoft,
+                          shape: BoxShape.circle,
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          widget.quiz.title,
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: IconButton(
+                          icon: const Icon(LucideIcons.arrowLeft, size: 16),
+                          onPressed: () => Navigator.pop(context),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${widget.quiz.subject} - ${widget.quiz.batch} - ${widget.quiz.totalQuestions} questions',
-                          style: const TextStyle(color: Colors.black54),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Ends: ${_formatDate(widget.quiz.endAt)}',
-                          style: const TextStyle(color: Colors.black54),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _MetricCard(
-                      title: 'Students',
-                      value: data.attempts.length.toString(),
-                      subtitle: 'attempt records',
-                      color: const Color(0xFF005BBF),
-                    ),
-                    _MetricCard(
-                      title: 'Violations',
-                      value: data.totalViolations.toString(),
-                      subtitle: 'across all attempts',
-                      color: const Color(0xFFCC7A00),
-                    ),
-                    _MetricCard(
-                      title: 'Auto Submitted',
-                      value: data.autoSubmittedCount.toString(),
-                      subtitle: 'attempts auto submitted',
-                      color: const Color(0xFFB91C1C),
-                    ),
-                    _MetricCard(
-                      title: 'Average Score',
-                      value:
-                          '${data.averageScorePercentage.toStringAsFixed(1)}%',
-                      subtitle: 'mean score',
-                      color: const Color(0xFF15803D),
-                    ),
-                    _MetricCard(
-                      title: 'Highest Score',
-                      value: data.highestScore == null
-                          ? 'N/A'
-                          : '${data.highestScore!.percentage.toStringAsFixed(1)}%',
-                      subtitle: data.highestScore == null
-                          ? 'No attempts'
-                          : '${data.highestScore!.studentLabel} (${data.highestScore!.securedPoints}/${data.totalPoints})',
-                      color: const Color(0xFF005BBF),
-                    ),
-                    _MetricCard(
-                      title: 'Lowest Score',
-                      value: data.lowestScore == null
-                          ? 'N/A'
-                          : '${data.lowestScore!.percentage.toStringAsFixed(1)}%',
-                      subtitle: data.lowestScore == null
-                          ? 'No attempts'
-                          : '${data.lowestScore!.studentLabel} (${data.lowestScore!.securedPoints}/${data.totalPoints})',
-                      color: const Color(0xFF9333EA),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Student Performance',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                if (data.attempts.isEmpty)
-                  const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text(
-                        'No student attempts found for this quiz yet.',
                       ),
-                    ),
-                  )
-                else
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Statistics',
+                        style: TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: _refresh,
+                        icon: const Icon(LucideIcons.refreshCw),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _MetricCard(
+                        title: 'Students',
+                        value: data.attempts.length.toString(),
+                        subtitle: 'attempt records',
+                        color: AppTheme.coral,
+                      ),
+                      _MetricCard(
+                        title: 'Auto Submitted',
+                        value: data.autoSubmittedCount.toString(),
+                        subtitle: 'submissions',
+                        color: const Color(0xFFF2C062),
+                      ),
+                      _MetricCard(
+                        title: 'Highest',
+                        value: data.highestScore == null
+                            ? 'N/A'
+                            : '${data.highestScore!.percentage.toStringAsFixed(1)}%',
+                        subtitle:
+                            data.highestScore?.studentLabel ?? 'No attempts',
+                        color: const Color(0xFF7FD08A),
+                      ),
+                      _MetricCard(
+                        title: 'Lowest',
+                        value: data.lowestScore == null
+                            ? 'N/A'
+                            : '${data.lowestScore!.percentage.toStringAsFixed(1)}%',
+                        subtitle:
+                            data.lowestScore?.studentLabel ?? 'No attempts',
+                        color: const Color(0xFFE58AA3),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
                   Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          headingRowColor: WidgetStateProperty.resolveWith(
-                            (_) => const Color(0xFFF1F5F9),
+                      padding: const EdgeInsets.all(14),
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.panelSoft,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Text(
+                              statusLabel.toUpperCase(),
+                              style: const TextStyle(
+                                color: AppTheme.coral,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                          columns: const [
-                            DataColumn(label: Text('Student')),
-                            DataColumn(label: Text('Email')),
-                            DataColumn(label: Text('Score')),
-                            DataColumn(label: Text('Violations')),
-                            DataColumn(label: Text('Auto')),
-                            DataColumn(label: Text('Status')),
-                            DataColumn(label: Text('Submitted')),
-                          ],
-                          rows: data.attempts
-                              .map((attempt) {
-                                return DataRow(
-                                  cells: [
-                                    DataCell(Text(attempt.studentLabel)),
-                                    DataCell(
-                                      Text(
-                                        attempt.studentEmail.isEmpty
-                                            ? '-'
-                                            : attempt.studentEmail,
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        '${attempt.securedPoints}/${data.totalPoints} (${attempt.scorePercentage.toStringAsFixed(1)}%)',
-                                      ),
-                                    ),
-                                    DataCell(Text('${attempt.violationCount}')),
-                                    DataCell(
-                                      Text(
-                                        attempt.autoSubmitted ? 'Yes' : 'No',
-                                        style: TextStyle(
-                                          color: attempt.autoSubmitted
-                                              ? Colors.red
-                                              : Colors.green,
-                                          fontWeight: FontWeight.w700,
+                          OutlinedButton.icon(
+                            onPressed: _openInteractivePreview,
+                            icon: const Icon(LucideIcons.eye, size: 17),
+                            label: const Text('Preview Quiz'),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: () => _exportCsv(data),
+                            icon: const Icon(
+                              LucideIcons.download,
+                              color: Colors.white,
+                              size: 17,
+                            ),
+                            label: const Text(
+                              'Export CSV',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Student Performance',
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  if (data.attempts.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                          'No student attempts found for this quiz yet.',
+                        ),
+                      ),
+                    )
+                  else
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            headingRowColor: WidgetStateProperty.resolveWith(
+                              (_) => AppTheme.panelSoft,
+                            ),
+                            columns: const [
+                              DataColumn(label: Text('Student')),
+                              DataColumn(label: Text('Email')),
+                              DataColumn(label: Text('Score')),
+                              DataColumn(label: Text('Violations')),
+                              DataColumn(label: Text('Auto')),
+                              DataColumn(label: Text('Status')),
+                              DataColumn(label: Text('Submitted')),
+                            ],
+                            rows: data.attempts
+                                .map((attempt) {
+                                  return DataRow(
+                                    cells: [
+                                      DataCell(Text(attempt.studentLabel)),
+                                      DataCell(
+                                        Text(
+                                          attempt.studentEmail.isEmpty
+                                              ? '-'
+                                              : attempt.studentEmail,
                                         ),
                                       ),
-                                    ),
-                                    DataCell(
-                                      Text(attempt.status.toUpperCase()),
-                                    ),
-                                    DataCell(
-                                      Text(_formatDate(attempt.submittedAt)),
-                                    ),
-                                  ],
-                                );
-                              })
-                              .toList(growable: false),
+                                      DataCell(
+                                        Text(
+                                          '${attempt.securedPoints}/${data.totalPoints} (${attempt.scorePercentage.toStringAsFixed(1)}%)',
+                                        ),
+                                      ),
+                                      DataCell(
+                                        Text('${attempt.violationCount}'),
+                                      ),
+                                      DataCell(
+                                        Text(
+                                          attempt.autoSubmitted ? 'Yes' : 'No',
+                                          style: TextStyle(
+                                            color: attempt.autoSubmitted
+                                                ? Colors.red
+                                                : Colors.green,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      DataCell(
+                                        Text(attempt.status.toUpperCase()),
+                                      ),
+                                      DataCell(
+                                        Text(_formatDate(attempt.submittedAt)),
+                                      ),
+                                    ],
+                                  );
+                                })
+                                .toList(growable: false),
+                          ),
                         ),
                       ),
                     ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Question Bank',
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
                   ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Quiz Preview',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                if (data.questions.isEmpty)
-                  const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text('No questions found in this quiz.'),
-                    ),
-                  )
-                else
-                  Card(
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: data.questions.length,
-                      separatorBuilder: (_, index) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final question = data.questions[index];
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          title: Text(
-                            '${index + 1}. ${question.text}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ...question.options.asMap().entries.map((
-                                  entry,
-                                ) {
-                                  final optionPrefix = String.fromCharCode(
-                                    (65 + entry.key).clamp(65, 90),
-                                  );
-                                  final isCorrect =
-                                      _normalize(entry.value) ==
-                                      _normalize(question.correctOption);
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 2),
-                                    child: Text(
-                                      '$optionPrefix. ${entry.value}${isCorrect ? '  (Correct)' : ''}',
-                                      style: TextStyle(
-                                        color: isCorrect
-                                            ? const Color(0xFF15803D)
-                                            : const Color(0xFF334155),
-                                        fontWeight: isCorrect
-                                            ? FontWeight.w600
-                                            : FontWeight.w400,
-                                      ),
-                                    ),
-                                  );
-                                }),
-                              ],
+                  const SizedBox(height: 10),
+                  if (data.questions.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('No questions found in this quiz.'),
+                      ),
+                    )
+                  else
+                    Card(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: data.questions.length,
+                        separatorBuilder: (_, index) =>
+                            const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final question = data.questions[index];
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
                             ),
-                          ),
-                          trailing: Text('${question.points} pts'),
-                        );
-                      },
+                            title: Text(
+                              '${index + 1}. ${question.text}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  ...question.options.asMap().entries.map((
+                                    entry,
+                                  ) {
+                                    final optionPrefix = String.fromCharCode(
+                                      (65 + entry.key).clamp(65, 90),
+                                    );
+                                    final isCorrect =
+                                        _normalize(entry.value) ==
+                                        _normalize(question.correctOption);
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 2),
+                                      child: Text(
+                                        '$optionPrefix. ${entry.value}${isCorrect ? '  (Correct)' : ''}',
+                                        style: TextStyle(
+                                          color: isCorrect
+                                              ? const Color(0xFF15803D)
+                                              : AppTheme.textMuted,
+                                          fontWeight: isCorrect
+                                              ? FontWeight.w600
+                                              : FontWeight.w400,
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ),
+                            trailing: Text('${question.points} pts'),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           );
         },
@@ -664,8 +691,11 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final cardWidth = width > 430 ? (width - 58) / 2 : width - 36;
+
     return SizedBox(
-      width: 210,
+      width: cardWidth,
       child: Card(
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -674,7 +704,7 @@ class _MetricCard extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
               ),
               const SizedBox(height: 8),
               Text(
@@ -690,7 +720,7 @@ class _MetricCard extends StatelessWidget {
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
               ),
             ],
           ),
@@ -741,6 +771,7 @@ class _AttemptInsight {
     required this.isSubmitted,
     required this.answeredCount,
     required this.correctCount,
+    required this.violationEvents,
   });
 
   final String attemptId;
@@ -758,6 +789,7 @@ class _AttemptInsight {
   final bool isSubmitted;
   final int answeredCount;
   final int correctCount;
+  final List<_ViolationEvent> violationEvents;
 
   String get studentLabel {
     if (studentName.isNotEmpty) {
@@ -767,6 +799,30 @@ class _AttemptInsight {
       return studentEmail;
     }
     return studentId.isEmpty ? 'Unknown Student' : studentId;
+  }
+
+  String get violationTimelineCsv {
+    if (violationEvents.isEmpty) {
+      return '-';
+    }
+
+    return violationEvents
+        .map((event) {
+          final numberPrefix = event.violationNumber == null
+              ? ''
+              : '#${event.violationNumber} ';
+          final when = event.createdAt == null
+              ? 'Unknown time'
+              : DateFormat(
+                  'dd MMM yyyy, hh:mm:ss a',
+                ).format(event.createdAt!.toLocal());
+          final typeLabel = event.type.isEmpty ? 'unknown' : event.type;
+          final detailsSuffix = event.details.isEmpty
+              ? ''
+              : ' (${event.details})';
+          return '$numberPrefix$when - $typeLabel$detailsSuffix';
+        })
+        .join(' | ');
   }
 }
 
@@ -780,4 +836,18 @@ class _ScoreSummary {
   final String studentLabel;
   final double percentage;
   final int securedPoints;
+}
+
+class _ViolationEvent {
+  const _ViolationEvent({
+    required this.violationNumber,
+    required this.type,
+    required this.details,
+    required this.createdAt,
+  });
+
+  final int? violationNumber;
+  final String type;
+  final String details;
+  final DateTime? createdAt;
 }

@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../models/quiz_models.dart';
 import '../services/quiz_service.dart';
+import '../theme/app_theme.dart';
 
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key, this.attemptId, this.quizId, this.quizTitle});
@@ -217,7 +218,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
             .get();
       } on FirebaseException catch (error) {
         if (error.code == 'permission-denied') {
-          return null;
+          final requestedQuizId = (widget.quizId ?? '').trim();
+          if (requestedQuizId.isNotEmpty) {
+            return _resolveAttemptByDeterministicId(
+              quizId: requestedQuizId,
+              uid: uid,
+            );
+          }
+          return _resolveAttemptSnapshotFromQuizIds(uid);
         }
         rethrow;
       }
@@ -243,11 +251,17 @@ class _ResultsScreenState extends State<ResultsScreen> {
         }
       } on FirebaseException catch (error) {
         if (error.code == 'permission-denied') {
-          return null;
+          return _resolveAttemptByDeterministicId(
+            quizId: requestedQuizId,
+            uid: uid,
+          );
         }
         rethrow;
       }
-      return null;
+      return _resolveAttemptByDeterministicId(
+        quizId: requestedQuizId,
+        uid: uid,
+      );
     }
 
     QuerySnapshot<Map<String, dynamic>> snapshot;
@@ -258,13 +272,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
           .get();
     } on FirebaseException catch (error) {
       if (error.code == 'permission-denied') {
-        return null;
+        return _resolveAttemptSnapshotFromQuizIds(uid);
       }
       rethrow;
     }
 
     if (snapshot.docs.isEmpty) {
-      return null;
+      return _resolveAttemptSnapshotFromQuizIds(uid);
     }
 
     final sorted = snapshot.docs.toList(growable: false)
@@ -275,6 +289,105 @@ class _ResultsScreenState extends State<ResultsScreen> {
       );
 
     return sorted.first;
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?>
+  _resolveAttemptByDeterministicId({
+    required String quizId,
+    required String uid,
+  }) async {
+    final deterministicId = '${quizId}_$uid';
+    try {
+      final attemptSnap = await _db
+          .collection('attempts')
+          .doc(deterministicId)
+          .get();
+      if (attemptSnap.exists) {
+        return attemptSnap;
+      }
+    } on FirebaseException catch (error) {
+      if (error.code != 'permission-denied') {
+        rethrow;
+      }
+    }
+    return null;
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?>
+  _resolveAttemptSnapshotFromQuizIds(String uid) async {
+    DocumentSnapshot<Map<String, dynamic>> userProfile;
+    try {
+      userProfile = await _db.collection('users').doc(uid).get();
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        return null;
+      }
+      rethrow;
+    }
+
+    final batchRaw = (userProfile.data()?['batch'] as String?) ?? '';
+    final batchLabel = batchRaw.trim();
+    final batchNormalized = batchLabel.toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    );
+    if (batchLabel.isEmpty && batchNormalized.isEmpty) {
+      return null;
+    }
+
+    final quizDocsById =
+        <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+    Future<void> addQuizDocsForBatch(String batch) async {
+      if (batch.isEmpty) {
+        return;
+      }
+      final snap = await _db
+          .collection('quizzes')
+          .where('batch', isEqualTo: batch)
+          .get();
+      for (final doc in snap.docs) {
+        quizDocsById[doc.id] = doc;
+      }
+    }
+
+    try {
+      await addQuizDocsForBatch(batchLabel);
+      if (batchNormalized != batchLabel) {
+        await addQuizDocsForBatch(batchNormalized);
+      }
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        return null;
+      }
+      rethrow;
+    }
+
+    if (quizDocsById.isEmpty) {
+      return null;
+    }
+
+    final candidates = <DocumentSnapshot<Map<String, dynamic>>>[];
+    for (final quizDoc in quizDocsById.values) {
+      final attemptSnap = await _resolveAttemptByDeterministicId(
+        quizId: quizDoc.id,
+        uid: uid,
+      );
+      if (attemptSnap != null && attemptSnap.exists) {
+        candidates.add(attemptSnap);
+      }
+    }
+
+    if (candidates.isEmpty) {
+      return null;
+    }
+
+    candidates.sort(
+      (a, b) => _sortKeyForAttempt(
+        b.data() ?? const <String, dynamic>{},
+      ).compareTo(_sortKeyForAttempt(a.data() ?? const <String, dynamic>{})),
+    );
+    return candidates.first;
   }
 
   DateTime _sortKeyForAttempt(Map<String, dynamic> data) {
@@ -302,7 +415,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FF),
+      backgroundColor: AppTheme.midnight,
       appBar: AppBar(
         title: const Text('EduAssess'),
         leading: IconButton(
@@ -368,7 +481,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   const SizedBox(height: 12),
                   const Text(
                     'You missed this quiz. This page shows the answer key and total marks.',
-                    style: TextStyle(color: Colors.black54),
+                    style: TextStyle(color: AppTheme.textMuted),
                   ),
                 ],
                 const SizedBox(height: 24),
@@ -448,7 +561,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                       : 'Violations: ${result.violationCount}',
                                   style: const TextStyle(
                                     fontSize: 12,
-                                    color: Colors.black54,
+                                    color: AppTheme.textMuted,
                                   ),
                                 ),
                               ],
@@ -495,7 +608,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                           'Attempt ID: ${result.attemptId}',
                           style: const TextStyle(
                             fontSize: 12,
-                            color: Colors.black54,
+                            color: AppTheme.textMuted,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -503,7 +616,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                           'Quiz ID: ${result.quizId}',
                           style: const TextStyle(
                             fontSize: 12,
-                            color: Colors.black54,
+                            color: AppTheme.textMuted,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -511,7 +624,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                           'Questions: ${result.totalQuestions}',
                           style: const TextStyle(
                             fontSize: 12,
-                            color: Colors.black54,
+                            color: AppTheme.textMuted,
                           ),
                         ),
                       ],
@@ -637,7 +750,7 @@ class _StatusPill extends StatelessWidget {
       'FLAGGED' => (const Color(0xFFFFF3CD), const Color(0xFF8A6D3B)),
       'DISQUALIFIED' => (const Color(0xFFFFE2E2), const Color(0xFFB71C1C)),
       'MISSED' => (const Color(0xFFFFF4E5), const Color(0xFF9A6700)),
-      _ => (const Color(0xFFE2E8F0), const Color(0xFF334155)),
+      _ => (AppTheme.panelSoft, AppTheme.textMuted),
     };
 
     return Container(
