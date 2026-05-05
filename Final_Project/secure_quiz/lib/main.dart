@@ -10,8 +10,8 @@ import 'package:secure_quiz/screens/login_screen.dart';
 import 'package:secure_quiz/screens/quiz_management_screen.dart';
 import 'package:secure_quiz/screens/quiz_preview_screen.dart';
 import 'package:secure_quiz/screens/quiz_taking_screen.dart';
-import 'package:secure_quiz/screens/results_screen.dart';
 import 'package:secure_quiz/screens/student_dashboard.dart';
+import 'package:secure_quiz/screens/student_statistics_screen.dart';
 import 'package:secure_quiz/screens/teacher_dashboard.dart';
 import 'package:secure_quiz/services/auth_service.dart';
 import 'package:secure_quiz/state/auth_view_model.dart';
@@ -52,7 +52,7 @@ class EduAssessApp extends StatelessWidget {
           '/login': (context) => const LoginScreen(),
           '/teacher': (context) => const TeacherDashboard(),
           '/student': (context) => const StudentDashboard(),
-          '/results': (context) => const ResultsScreen(),
+          '/results': (context) => const StudentStatisticsScreen(),
           '/manage-quizzes': (context) => const QuizManagementScreen(),
           '/create-quiz': (context) => const CreateQuizScreen(),
           '/quiz-preview': (context) => const QuizPreviewScreen(),
